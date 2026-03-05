@@ -52,6 +52,33 @@ public partial class SidebarWindow : Window
         SettingsPopup.IsOpen = !SettingsPopup.IsOpen;
     }
 
+    private async void SuggestedPrompt_Click(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SidebarViewModel viewModel || sender is not System.Windows.Controls.Button button)
+        {
+            return;
+        }
+
+        if (button.Content is string prompt && !string.IsNullOrWhiteSpace(prompt))
+        {
+            await viewModel.SendSuggestedPromptAsync(prompt).ConfigureAwait(true);
+        }
+    }
+
+    private void ChatInput_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || Keyboard.Modifiers != ModifierKeys.None)
+        {
+            return;
+        }
+
+        if (DataContext is SidebarViewModel viewModel && viewModel.SendChatCommand.CanExecute(null))
+        {
+            viewModel.SendChatCommand.Execute(null);
+            e.Handled = true;
+        }
+    }
+
     private void CloseButton_Click(object sender, RoutedEventArgs e)
     {
         Hide();

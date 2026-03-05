@@ -303,48 +303,87 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Recent Captures -->
-                    <TextBlock Text="RECENT CAPTURES"
-                               Style="{StaticResource SectionLabel}"
-                               Margin="2,4,0,6" />
+                    <!-- Chat More -->
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="CHAT MORE" Style="{StaticResource SectionLabel}" />
 
-                    <ItemsControl ItemsSource="{Binding History}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Margin="0,0,0,6"
-                                        Padding="12,9"
-                                        CornerRadius="9"
-                                        Background="#26FFFFFF"
-                                        BorderBrush="#33BBBBBB"
-                                        BorderThickness="1">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding Title}"
-                                                       FontSize="13"
-                                                       FontWeight="SemiBold"
-                                                       Foreground="#DD1A1A1A"
-                                                       TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding Summary}"
-                                                       Margin="0,2,0,0"
-                                                       FontSize="12"
-                                                       Foreground="#88000000"
-                                                       TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
-                                        <TextBlock Grid.Column="1"
-                                                   Text="{Binding Timestamp, StringFormat={}{0:HH:mm}}"
-                                                   FontSize="11"
-                                                   Foreground="#66000000"
-                                                   VerticalAlignment="Top"
-                                                   Margin="8,1,0,0" />
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                            <ItemsControl ItemsSource="{Binding SuggestedPrompts}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Content="{Binding}"
+                                                Margin="0,0,6,6"
+                                                Padding="10,5"
+                                                FontSize="12"
+                                                Background="#22FFFFFF"
+                                                BorderBrush="#33AAAAAA"
+                                                BorderThickness="1"
+                                                Cursor="Hand"
+                                                Click="SuggestedPrompt_Click" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <Border Margin="0,4,0,8"
+                                    Padding="8"
+                                    CornerRadius="8"
+                                    BorderBrush="#33BBBBBB"
+                                    BorderThickness="1"
+                                    Background="#1FFFFFFF">
+                                <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
+                                    <ItemsControl ItemsSource="{Binding ChatTurns}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Margin="0,0,0,8"
+                                                        Padding="8"
+                                                        CornerRadius="7"
+                                                        Background="#1AFFFFFF">
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding Prompt}"
+                                                                   FontSize="12"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="#CC1A1A1A"
+                                                                   TextWrapping="Wrap" />
+                                                        <TextBlock Text="{Binding Response}"
+                                                                   Margin="0,4,0,0"
+                                                                   FontSize="12"
+                                                                   Foreground="#AA000000"
+                                                                   TextWrapping="Wrap" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </Border>
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="8" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding ChatInput, UpdateSourceTrigger=PropertyChanged}"
+                                         VerticalContentAlignment="Center"
+                                         Padding="10,6"
+                                         FontSize="12"
+                                         Background="#22FFFFFF"
+                                         BorderBrush="#44BBBBBB"
+                                         BorderThickness="1"
+                                         KeyDown="ChatInput_KeyDown" />
+                                <Button Grid.Column="2"
+                                        Content="Send"
+                                        Style="{StaticResource ActionButton}"
+                                        Command="{Binding SendChatCommand}" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
 
                 </StackPanel>
             </ScrollViewer>

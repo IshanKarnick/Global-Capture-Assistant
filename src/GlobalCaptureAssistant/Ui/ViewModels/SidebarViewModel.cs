@@ -36,6 +36,8 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
     private string _selectedThinkingLevel = "low";
     private bool _autoStartEnabled = true;
     private bool _suppressSettingsChanged;
+    private string _chatInput = string.Empty;
+    private Func<string, Task>? _chatSendAction;
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler? SettingsChanged;
@@ -43,16 +45,25 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
     public SidebarViewModel()
     {
         RetryCommand = new AsyncRelayCommand(RetryAsync, () => CanRetry);
+        SendChatCommand = new AsyncRelayCommand(SendChatAsync, () => CanSendChat);
     }
 
-    public ObservableCollection<AnalysisHistoryItem> History { get; } = [];
+    public ObservableCollection<ChatTurn> ChatTurns { get; } = [];
+    public ObservableCollection<string> SuggestedPrompts { get; } = [];
     public IReadOnlyList<string> ModelOptions => DefaultModelOptions;
     public IReadOnlyList<string> ThinkingOptions => DefaultThinkingOptions;
 
     public AnalysisState State
     {
         get => _state;
-        set => SetField(ref _state, value);
+        set
+        {
+            if (SetField(ref _state, value))
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanSendChat)));
+                (SendChatCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            }
+        }
     }
 
     public string StatusText
@@ -127,12 +138,38 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         }
     }
 
+    public string ChatInput
+    {
+        get => _chatInput;
+        set
+        {
+            if (SetField(ref _chatInput, value))
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanSendChat)));
+                (SendChatCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    public bool CanSendChat =>
+        !string.IsNullOrWhiteSpace(ChatInput)
+        && _chatSendAction is not null
+        && State is not AnalysisState.Uploading;
+
     public ICommand RetryCommand { get; }
+    public ICommand SendChatCommand { get; }
 
     public void SetRetryAction(Func<Task>? retryAction)
     {
         _retryAction = retryAction;
         CanRetry = retryAction is not null;
+    }
+
+    public void SetChatSendAction(Func<string, Task>? sendAction)
+    {
+        _chatSendAction = sendAction;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanSendChat)));
+        (SendChatCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
     }
 
     public void ApplySettings(AppSettings settings)
@@ -154,13 +191,45 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         }
     }
 
-    public void AddHistory(string title, string summary)
+    public void SetSuggestedPrompts(IEnumerable<string>? prompts)
     {
-        History.Insert(0, new AnalysisHistoryItem(DateTimeOffset.Now, title, summary));
-        while (History.Count > 20)
+        SuggestedPrompts.Clear();
+        if (prompts is null)
         {
-            History.RemoveAt(History.Count - 1);
+            return;
         }
+
+        foreach (var prompt in prompts.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct().Take(5))
+        {
+            SuggestedPrompts.Add(prompt.Trim());
+        }
+    }
+
+    public void AddChatTurn(string prompt, string response)
+    {
+        ChatTurns.Add(new ChatTurn(DateTimeOffset.Now, prompt, response));
+        while (ChatTurns.Count > 20)
+        {
+            ChatTurns.RemoveAt(0);
+        }
+    }
+
+    public void ClearChatSession()
+    {
+        ChatTurns.Clear();
+        SuggestedPrompts.Clear();
+        ChatInput = string.Empty;
+    }
+
+    public async Task SendSuggestedPromptAsync(string prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt) || _chatSendAction is null)
+        {
+            return;
+        }
+
+        ChatInput = prompt.Trim();
+        await SendChatAsync().ConfigureAwait(true);
     }
 
     private async Task RetryAsync()
@@ -171,6 +240,18 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         }
 
         await _retryAction().ConfigureAwait(true);
+    }
+
+    private async Task SendChatAsync()
+    {
+        var prompt = ChatInput.Trim();
+        if (string.IsNullOrWhiteSpace(prompt) || _chatSendAction is null)
+        {
+            return;
+        }
+
+        ChatInput = string.Empty;
+        await _chatSendAction(prompt).ConfigureAwait(true);
     }
 
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? member = null)

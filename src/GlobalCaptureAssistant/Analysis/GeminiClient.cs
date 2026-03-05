@@ -12,6 +12,8 @@ namespace GlobalCaptureAssistant.Analysis;
 
 public sealed class GeminiClient
 {
+    private const string PromptSuggestionModelId = "gemma-3-27b-it";
+
     private static readonly Uri BaseUri = new("https://generativelanguage.googleapis.com/");
     private static readonly TimeSpan[] RetryDelays =
     [
@@ -47,10 +49,11 @@ public sealed class GeminiClient
         }
 
         var modelId = string.IsNullOrWhiteSpace(_settings.ModelId) ? "gemini-3.1-pro-preview" : _settings.ModelId;
-        var payload = BuildPayload(request.ImagePng);
-        var maxRetries = Math.Max(0, _settings.MaxRetries);
+        var payload = BuildAnalysisPayload(request);
 
         Exception? lastException = null;
+        var maxRetries = Math.Max(0, _settings.MaxRetries);
+
         for (var attempt = 0; attempt <= maxRetries; attempt++)
         {
             var stopwatch = Stopwatch.StartNew();
@@ -78,7 +81,12 @@ public sealed class GeminiClient
                     throw new InvalidOperationException("Gemini returned an empty response.");
                 }
 
-                return new AnalyzeResponse(text, ParseTokenField(body, "promptTokenCount"), ParseTokenField(body, "candidatesTokenCount"), stopwatch.Elapsed);
+                return new AnalyzeResponse(
+                    text,
+                    ParseTokenField(body, "promptTokenCount"),
+                    ParseTokenField(body, "candidatesTokenCount"),
+                    stopwatch.Elapsed,
+                    SuggestedPrompts: null);
             }
             catch (Exception ex) when (attempt < maxRetries && (ex is HttpRequestException or TaskCanceledException))
             {
@@ -92,8 +100,70 @@ public sealed class GeminiClient
             }
         }
 
-        _logger.Error("Gemini request failed.", lastException);
-        throw lastException ?? new InvalidOperationException("Gemini request failed.");
+        _logger.Error("Gemini image analysis request failed.", lastException);
+        throw lastException ?? new InvalidOperationException("Gemini image analysis request failed.");
+    }
+
+    public async Task<IReadOnlyList<string>> GenerateSuggestedPromptsAsync(string answer, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(answer))
+        {
+            return BuildFallbackSuggestions(answer);
+        }
+
+        var apiKey = _settingsStore.GetApiKey(_settings);
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            return BuildFallbackSuggestions(answer);
+        }
+
+        var payload = BuildPromptSuggestionPayload(answer);
+        Exception? lastException = null;
+        var maxRetries = Math.Max(0, _settings.MaxRetries);
+
+        for (var attempt = 0; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                using var message = BuildMessage(PromptSuggestionModelId, apiKey, payload);
+                using var response = await _httpClient.SendAsync(message, cancellationToken).ConfigureAwait(false);
+                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    if (attempt < maxRetries && IsTransient(response.StatusCode))
+                    {
+                        await Task.Delay(RetryDelays[Math.Min(attempt, RetryDelays.Length - 1)], cancellationToken).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    lastException = new HttpRequestException($"Gemma suggestion request failed with {(int)response.StatusCode}: {TryParseError(body) ?? response.ReasonPhrase}");
+                    break;
+                }
+
+                var suggestions = ParseSuggestedPrompts(body);
+                if (suggestions.Count > 0)
+                {
+                    return suggestions;
+                }
+
+                lastException = new InvalidOperationException("Gemma suggestion response was empty.");
+                break;
+            }
+            catch (Exception ex) when (attempt < maxRetries && (ex is HttpRequestException or TaskCanceledException))
+            {
+                lastException = ex;
+                await Task.Delay(RetryDelays[Math.Min(attempt, RetryDelays.Length - 1)], cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                lastException = ex;
+                break;
+            }
+        }
+
+        _logger.Warn($"Falling back to local suggestions. {lastException?.Message}");
+        return BuildFallbackSuggestions(answer);
     }
 
     private static HttpRequestMessage BuildMessage(string modelId, string apiKey, object payload)
@@ -102,12 +172,44 @@ public sealed class GeminiClient
         {
             Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
         };
+
         message.Headers.Add("x-goog-api-key", apiKey);
         message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return message;
     }
 
-    private static object BuildPayload(byte[] imagePng)
+    private static object BuildAnalysisPayload(AnalyzeRequest request)
+    {
+        var parts = new List<object>
+        {
+            new
+            {
+                inlineData = new
+                {
+                    mimeType = "image/png",
+                    data = Convert.ToBase64String(request.ImagePng)
+                }
+            }
+        };
+
+        if (!string.IsNullOrWhiteSpace(request.UserPrompt))
+        {
+            parts.Add(new { text = request.UserPrompt.Trim() });
+        }
+
+        return new
+        {
+            contents = new[]
+            {
+                new
+                {
+                    parts = parts.ToArray()
+                }
+            }
+        };
+    }
+
+    private static object BuildPromptSuggestionPayload(string answer)
     {
         return new
         {
@@ -119,16 +221,135 @@ public sealed class GeminiClient
                     {
                         new
                         {
-                            inlineData = new
-                            {
-                                mimeType = "image/png",
-                                data = Convert.ToBase64String(imagePng)
-                            }
+                            text =
+                                "Based on this assistant answer, generate follow-up prompts the user can click in a sidebar. " +
+                                "Return STRICT JSON only with this shape: {\"suggested_prompts\":[\"...\"]}. " +
+                                "Rules: 3 to 5 prompts, each under 12 words, actionable, no numbering, no markdown.\n\n" +
+                                $"Assistant answer:\n{answer}"
                         }
                     }
                 }
+            },
+            generationConfig = new
+            {
+                responseMimeType = "application/json",
+                responseJsonSchema = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        suggested_prompts = new
+                        {
+                            type = "array",
+                            items = new { type = "string" }
+                        }
+                    },
+                    required = new[] { "suggested_prompts" }
+                }
             }
         };
+    }
+
+    private static IReadOnlyList<string> ParseSuggestedPrompts(string body)
+    {
+        var text = ParseText(body);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return [];
+        }
+
+        var cleaned = StripCodeFence(text.Trim());
+        try
+        {
+            using var doc = JsonDocument.Parse(cleaned);
+            JsonElement suggestions;
+
+            if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                suggestions = doc.RootElement;
+            }
+            else if (doc.RootElement.TryGetProperty("suggested_prompts", out var explicitPrompts))
+            {
+                suggestions = explicitPrompts;
+            }
+            else if (doc.RootElement.TryGetProperty("prompts", out var genericPrompts))
+            {
+                suggestions = genericPrompts;
+            }
+            else
+            {
+                return [];
+            }
+
+            if (suggestions.ValueKind != JsonValueKind.Array)
+            {
+                return [];
+            }
+
+            return suggestions
+                .EnumerateArray()
+                .Select(x => x.GetString())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x!.Trim())
+                .Distinct()
+                .Take(5)
+                .ToList();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static string StripCodeFence(string text)
+    {
+        if (!text.StartsWith("```", StringComparison.Ordinal))
+        {
+            return text;
+        }
+
+        var firstLineEnd = text.IndexOf('\n');
+        if (firstLineEnd < 0)
+        {
+            return text.Trim('`').Trim();
+        }
+
+        var body = text[(firstLineEnd + 1)..];
+        var fenceIndex = body.LastIndexOf("```", StringComparison.Ordinal);
+        if (fenceIndex >= 0)
+        {
+            body = body[..fenceIndex];
+        }
+
+        return body.Trim();
+    }
+
+    private static IReadOnlyList<string> BuildFallbackSuggestions(string answer)
+    {
+        var hints = (answer ?? string.Empty).ToLowerInvariant();
+
+        var prompts = new List<string>
+        {
+            "Summarize this in one sentence.",
+            "Give me the next 3 actions.",
+            "What should I verify first?"
+        };
+
+        if (hints.Contains("error") || hints.Contains("code") || hints.Contains("exception"))
+        {
+            prompts.Add("Suggest a debugging checklist.");
+        }
+        else if (hints.Contains("email") || hints.Contains("message"))
+        {
+            prompts.Add("Draft a concise response for me.");
+        }
+        else
+        {
+            prompts.Add("Turn this into a task checklist.");
+        }
+
+        prompts.Add("What risks should I watch for?");
+        return prompts.Distinct().Take(5).ToList();
     }
 
     private static bool IsTransient(HttpStatusCode statusCode)

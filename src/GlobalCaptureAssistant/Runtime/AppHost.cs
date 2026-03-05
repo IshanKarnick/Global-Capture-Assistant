@@ -26,7 +26,6 @@ public sealed class AppHost : IDisposable
     private FloatingButtonWindow? _floatingButton;
     private SidebarWindow? _sidebarWindow;
     private AnalyzeRequest? _lastRequest;
-    private string _lastTitle = "Captured region";
 
     public AppHost()
     {
@@ -34,6 +33,7 @@ public sealed class AppHost : IDisposable
         _geminiClient = new GeminiClient(_settingsStore, _settings, _logger);
         _sidebarViewModel.ApplySettings(_settings);
         _sidebarViewModel.SettingsChanged += OnSidebarSettingsChanged;
+        _sidebarViewModel.SetChatSendAction(ChatMoreAsync);
     }
 
     public void Start()
@@ -113,10 +113,11 @@ public sealed class AppHost : IDisposable
                 request = new AnalyzeRequest(
                     capture.PngBytes,
                     windowContext,
-                    "Summarize what is shown and suggest practical next actions.",
+                    string.Empty,
                     Guid.NewGuid().ToString("N")[..8]);
+
                 _lastRequest = request;
-                _lastTitle = windowContext?.Title ?? "Captured region";
+                _sidebarViewModel.ClearChatSession();
             }
 
             _sidebarViewModel.State = AnalysisState.Uploading;
@@ -124,11 +125,15 @@ public sealed class AppHost : IDisposable
             var response = await _geminiClient.AnalyzeImageAsync(request, CancellationToken.None).ConfigureAwait(true);
 
             _sidebarViewModel.State = AnalysisState.Rendering;
-            _sidebarViewModel.StatusText = $"Done in {response.Latency.TotalSeconds:F1}s";
+            _sidebarViewModel.StatusText = "Generating follow-up prompts...";
+            var suggestions = await _geminiClient.GenerateSuggestedPromptsAsync(response.Text, CancellationToken.None).ConfigureAwait(true);
+
             _sidebarViewModel.ResultText = response.Text;
+            _sidebarViewModel.SetSuggestedPrompts(suggestions);
+            _sidebarViewModel.AddChatTurn("Initial image analysis", response.Text);
             _sidebarViewModel.ErrorText = string.Empty;
             _sidebarViewModel.CanRetry = false;
-            _sidebarViewModel.AddHistory(_lastTitle, response.Text.Length > 120 ? $"{response.Text[..120]}..." : response.Text);
+            _sidebarViewModel.StatusText = $"Done in {response.Latency.TotalSeconds:F1}s";
             _sidebarViewModel.State = AnalysisState.Idle;
         }
         catch (Exception ex)
@@ -136,6 +141,62 @@ public sealed class AppHost : IDisposable
             _logger.Error("Capture/analysis workflow failed.", ex);
             _sidebarViewModel.State = AnalysisState.Error;
             _sidebarViewModel.StatusText = "Analysis failed";
+            _sidebarViewModel.ErrorText = ex.Message;
+            _sidebarViewModel.CanRetry = _lastRequest is not null;
+        }
+    }
+
+    private async Task ChatMoreAsync(string prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            return;
+        }
+
+        if (_lastRequest is null)
+        {
+            _sidebarViewModel.StatusText = "Capture an image first.";
+            return;
+        }
+
+        try
+        {
+            ShowSidebar();
+            if (!EnsureApiKey())
+            {
+                _sidebarViewModel.StatusText = "Gemini API key is required.";
+                return;
+            }
+
+            var followUpRequest = _lastRequest with
+            {
+                UserPrompt = prompt.Trim(),
+                CorrelationId = Guid.NewGuid().ToString("N")[..8]
+            };
+
+            _sidebarViewModel.State = AnalysisState.Uploading;
+            _sidebarViewModel.StatusText = "Analyzing follow-up...";
+            _sidebarViewModel.ErrorText = string.Empty;
+
+            var response = await _geminiClient.AnalyzeImageAsync(followUpRequest, CancellationToken.None).ConfigureAwait(true);
+
+            _sidebarViewModel.State = AnalysisState.Rendering;
+            _sidebarViewModel.StatusText = "Generating follow-up prompts...";
+            var suggestions = await _geminiClient.GenerateSuggestedPromptsAsync(response.Text, CancellationToken.None).ConfigureAwait(true);
+
+            _lastRequest = followUpRequest;
+            _sidebarViewModel.ResultText = response.Text;
+            _sidebarViewModel.SetSuggestedPrompts(suggestions);
+            _sidebarViewModel.AddChatTurn(prompt.Trim(), response.Text);
+            _sidebarViewModel.StatusText = $"Done in {response.Latency.TotalSeconds:F1}s";
+            _sidebarViewModel.State = AnalysisState.Idle;
+            _sidebarViewModel.CanRetry = false;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Chat more workflow failed.", ex);
+            _sidebarViewModel.State = AnalysisState.Error;
+            _sidebarViewModel.StatusText = "Chat failed";
             _sidebarViewModel.ErrorText = ex.Message;
             _sidebarViewModel.CanRetry = _lastRequest is not null;
         }
@@ -176,6 +237,7 @@ public sealed class AppHost : IDisposable
     public void Dispose()
     {
         _sidebarViewModel.SettingsChanged -= OnSidebarSettingsChanged;
+        _sidebarViewModel.SetChatSendAction(null);
         _hotkeyService.Dispose();
         _trayIconService.Dispose();
         _floatingButton?.Close();

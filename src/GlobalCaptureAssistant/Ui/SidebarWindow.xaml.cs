@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using GlobalCaptureAssistant.Platform;
 using GlobalCaptureAssistant.Ui.ViewModels;
@@ -30,7 +31,7 @@ public partial class SidebarWindow : Window
     {
         var area = SystemParameters.WorkArea;
         Left = Math.Max(area.Left, area.Right - Width - 16);
-        Top = area.Top + 16;
+        Top = Math.Max(area.Top, area.Bottom - Height - 16);
     }
 
     private void Header_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -55,6 +56,7 @@ public partial class SidebarWindow : Window
     {
         Hide();
     }
+
 
     protected override void OnClosing(CancelEventArgs e)
     {

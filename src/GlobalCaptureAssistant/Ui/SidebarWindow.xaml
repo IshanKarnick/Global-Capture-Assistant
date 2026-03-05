@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:conv="clr-namespace:GlobalCaptureAssistant.Ui.Converters"
         xmlns:md="clr-namespace:MdXaml;assembly=MdXaml"
+        xmlns:local="clr-namespace:GlobalCaptureAssistant.Ui"
         Title="Capture Assistant"
         Width="420"
         Height="720"
@@ -15,6 +16,13 @@
         Background="Transparent"
         Topmost="True"
         FontFamily="Segoe UI Variable Text">
+    <WindowChrome.WindowChrome>
+        <!-- Left/Right = 0 (no horizontal resize), Top/Bottom = 6 (vertical resize grip) -->
+        <WindowChrome ResizeBorderThickness="0,6,0,6"
+                      CaptionHeight="0"
+                      GlassFrameThickness="0"
+                      UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
 
     <Window.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
@@ -269,14 +277,9 @@
                     <Border Style="{StaticResource Card}">
                         <StackPanel>
                             <TextBlock Text="RESULT" Style="{StaticResource SectionLabel}" />
-                            <md:MarkdownScrollViewer Markdown="{Binding ResultText}"
-                                                     VerticalScrollBarVisibility="Disabled"
-                                                     HorizontalScrollBarVisibility="Disabled"
-                                                     Padding="0"
-                                                     Margin="0,-2,0,0"
-                                                     FontSize="13"
-                                                     Foreground="#DD1A1A1A"
-                                                     Background="Transparent" />
+                            <local:MathMarkdownViewer Markdown="{Binding ResultText}"
+                                                      FontSize="13"
+                                                      Foreground="#DD1A1A1A" />
                         </StackPanel>
                     </Border>
 

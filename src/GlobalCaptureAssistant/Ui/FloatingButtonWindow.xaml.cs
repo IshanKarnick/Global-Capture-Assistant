@@ -6,11 +6,17 @@ namespace GlobalCaptureAssistant.Ui;
 
 public partial class FloatingButtonWindow : Window
 {
+    private System.Windows.Point _mouseDownPos;
+    private bool _isPointerDown;
+    private bool _isDragging;
+
     public FloatingButtonWindow()
     {
         InitializeComponent();
         Loaded += OnLoaded;
-        MouseLeftButtonDown += OnMouseLeftButtonDown;
+        PreviewMouseLeftButtonDown += OnPreviewMouseLeftButtonDown;
+        PreviewMouseMove += OnPreviewMouseMove;
+        PreviewMouseLeftButtonUp += OnPreviewMouseLeftButtonUp;
     }
 
     public event EventHandler? CaptureRequested;
@@ -23,16 +29,49 @@ public partial class FloatingButtonWindow : Window
         Top = area.Top + 140;
     }
 
-    private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ClickCount == 1 && e.LeftButton == MouseButtonState.Pressed)
+        _mouseDownPos = e.GetPosition(this);
+        _isPointerDown = true;
+        _isDragging = false;
+    }
+
+    private void OnPreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (!_isPointerDown || e.LeftButton != MouseButtonState.Pressed || _isDragging)
+        {
+            return;
+        }
+
+        var pos = e.GetPosition(this);
+        if (Math.Abs(pos.X - _mouseDownPos.X) <= 4 && Math.Abs(pos.Y - _mouseDownPos.Y) <= 4)
+        {
+            return;
+        }
+
+        _isDragging = true;
+        try
         {
             DragMove();
         }
+        finally
+        {
+            _isPointerDown = false;
+        }
+    }
+
+    private void OnPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        _isPointerDown = false;
     }
 
     private void CaptureButton_Click(object sender, RoutedEventArgs e)
     {
-        CaptureRequested?.Invoke(this, EventArgs.Empty);
+        if (!_isDragging)
+        {
+            CaptureRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        _isDragging = false;
     }
 }

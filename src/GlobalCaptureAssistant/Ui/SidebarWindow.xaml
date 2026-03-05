@@ -5,6 +5,7 @@
         xmlns:md="clr-namespace:MdXaml;assembly=MdXaml"
         xmlns:local="clr-namespace:GlobalCaptureAssistant.Ui"
         Title="Capture Assistant"
+        Icon="pack://application:,,,/Assets/Icons/app.png"
         Width="420"
         Height="720"
         MinWidth="360"

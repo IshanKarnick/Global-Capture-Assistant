@@ -15,4 +15,9 @@
     <PackageReference Include="System.Drawing.Common" Version="8.0.11" />
     <PackageReference Include="WpfMath" Version="2.1.0" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\Icons\app.png" />
+    <Resource Include="Assets\Icons\tray.png" />
+  </ItemGroup>
 </Project>

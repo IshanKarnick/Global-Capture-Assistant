@@ -6,6 +6,7 @@ namespace GlobalCaptureAssistant.Platform;
 public sealed class TrayIconService : IDisposable
 {
     private readonly NotifyIcon _notifyIcon;
+    private readonly Icon? _customIcon;
     private readonly ToolStripMenuItem _captureMenuItem;
     private readonly ToolStripMenuItem _showSidebarMenuItem;
     private readonly ToolStripMenuItem _exitMenuItem;
@@ -22,9 +23,10 @@ public sealed class TrayIconService : IDisposable
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_exitMenuItem);
 
+        _customIcon = AppIconLoader.LoadTrayIcon();
         _notifyIcon = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = _customIcon ?? SystemIcons.Application,
             Text = "Global Capture Assistant",
             Visible = true,
             ContextMenuStrip = menu
@@ -53,5 +55,6 @@ public sealed class TrayIconService : IDisposable
     {
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
+        _customIcon?.Dispose();
     }
 }

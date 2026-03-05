@@ -223,28 +223,11 @@ public sealed class GeminiClient
                         {
                             text =
                                 "Based on this assistant answer, generate follow-up prompts the user can click in a sidebar. " +
-                                "Return STRICT JSON only with this shape: {\"suggested_prompts\":[\"...\"]}. " +
-                                "Rules: 3 to 5 prompts, each under 12 words, actionable, no numbering, no markdown.\n\n" +
+                                "Return exactly 5 follow-up prompts, one per line. " +
+                                "Rules: each prompt under 12 words, actionable, no numbering, no markdown fences.\n\n" +
                                 $"Assistant answer:\n{answer}"
                         }
                     }
-                }
-            },
-            generationConfig = new
-            {
-                responseMimeType = "application/json",
-                responseJsonSchema = new
-                {
-                    type = "object",
-                    properties = new
-                    {
-                        suggested_prompts = new
-                        {
-                            type = "array",
-                            items = new { type = "string" }
-                        }
-                    },
-                    required = new[] { "suggested_prompts" }
                 }
             }
         };
@@ -297,7 +280,15 @@ public sealed class GeminiClient
         }
         catch
         {
-            return [];
+            // Fall back to line-based parsing for models without JSON mode.
+            return cleaned
+                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => line.Trim())
+                .Select(line => line.TrimStart('-', '*', '•', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '.', ')', ' '))
+                .Where(line => !string.IsNullOrWhiteSpace(line))
+                .Distinct()
+                .Take(5)
+                .ToList();
         }
     }
 

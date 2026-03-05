@@ -4,16 +4,16 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using OneNoteAnalyzeAddIn.Config;
-using OneNoteAnalyzeAddIn.Diagnostics;
-using OneNoteAnalyzeAddIn.Models;
+using GlobalCaptureAssistant.Config;
+using GlobalCaptureAssistant.Diagnostics;
+using GlobalCaptureAssistant.Models;
 
-namespace OneNoteAnalyzeAddIn.Analysis;
+namespace GlobalCaptureAssistant.Analysis;
 
 public sealed class GeminiClient
 {
     private static readonly Uri BaseUri = new("https://generativelanguage.googleapis.com/");
-    private static readonly TimeSpan[] DefaultRetryDelays =
+    private static readonly TimeSpan[] RetryDelays =
     [
         TimeSpan.FromMilliseconds(500),
         TimeSpan.FromMilliseconds(1000),
@@ -22,20 +22,22 @@ public sealed class GeminiClient
 
     private readonly HttpClient _httpClient;
     private readonly SettingsStore _settingsStore;
-    private readonly AddInSettings _settings;
+    private readonly AppSettings _settings;
     private readonly GeminiPromptComposer _promptComposer;
     private readonly AppLogger _logger;
 
-    public GeminiClient(SettingsStore settingsStore, AddInSettings settings, GeminiPromptComposer promptComposer, AppLogger logger, HttpClient? httpClient = null)
+    public GeminiClient(SettingsStore settingsStore, AppSettings settings, GeminiPromptComposer promptComposer, AppLogger logger)
     {
         _settingsStore = settingsStore;
         _settings = settings;
         _promptComposer = promptComposer;
         _logger = logger;
 
-        _httpClient = httpClient ?? new HttpClient();
-        _httpClient.BaseAddress = BaseUri;
-        _httpClient.Timeout = TimeSpan.FromSeconds(Math.Max(10, _settings.RequestTimeoutSeconds));
+        _httpClient = new HttpClient
+        {
+            BaseAddress = BaseUri,
+            Timeout = TimeSpan.FromSeconds(Math.Max(10, settings.RequestTimeoutSeconds))
+        };
     }
 
     public async Task<AnalyzeResponse> AnalyzeImageAsync(AnalyzeRequest request, CancellationToken cancellationToken)
@@ -47,47 +49,43 @@ public sealed class GeminiClient
         }
 
         var modelId = string.IsNullOrWhiteSpace(_settings.ModelId) ? "gemini-3.1-pro-preview" : _settings.ModelId;
-        var prompt = _promptComposer.ComposePrompt(request);
-        var payload = BuildPayload(prompt, request.ImagePng, _settings.ThinkingLevel);
+        var payload = BuildPayload(_promptComposer.ComposePrompt(request), request.ImagePng, _settings.ThinkingLevel);
         var maxRetries = Math.Max(0, _settings.MaxRetries);
 
         Exception? lastException = null;
         for (var attempt = 0; attempt <= maxRetries; attempt++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
             var stopwatch = Stopwatch.StartNew();
             try
             {
-                using var message = BuildHttpRequest(payload, modelId, apiKey);
+                using var message = BuildMessage(modelId, apiKey, payload);
                 using var response = await _httpClient.SendAsync(message, cancellationToken).ConfigureAwait(false);
-                var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                 stopwatch.Stop();
 
                 if (!response.IsSuccessStatusCode)
                 {
                     if (attempt < maxRetries && IsTransient(response.StatusCode))
                     {
-                        await DelayBeforeRetry(attempt, cancellationToken).ConfigureAwait(false);
+                        await Task.Delay(RetryDelays[Math.Min(attempt, RetryDelays.Length - 1)], cancellationToken).ConfigureAwait(false);
                         continue;
                     }
 
-                    var apiError = TryParseApiError(responseBody) ?? response.ReasonPhrase ?? "unknown error";
-                    _logger.Warn($"Gemini request failed: {(int)response.StatusCode} {apiError}", request.CorrelationId);
-                    throw new HttpRequestException($"Gemini request failed with {(int)response.StatusCode}: {apiError}");
+                    throw new HttpRequestException($"Gemini request failed with {(int)response.StatusCode}: {TryParseError(body) ?? response.ReasonPhrase}");
                 }
 
-                var parsedText = ParseTextResponse(responseBody);
-                if (string.IsNullOrWhiteSpace(parsedText))
+                var text = ParseText(body);
+                if (string.IsNullOrWhiteSpace(text))
                 {
                     throw new InvalidOperationException("Gemini returned an empty response.");
                 }
 
-                return new AnalyzeResponse(parsedText, ParseInputTokens(responseBody), ParseOutputTokens(responseBody), stopwatch.Elapsed);
+                return new AnalyzeResponse(text, ParseTokenField(body, "promptTokenCount"), ParseTokenField(body, "candidatesTokenCount"), stopwatch.Elapsed);
             }
-            catch (Exception ex) when (IsRetriableException(ex) && attempt < maxRetries)
+            catch (Exception ex) when (attempt < maxRetries && (ex is HttpRequestException or TaskCanceledException))
             {
                 lastException = ex;
-                await DelayBeforeRetry(attempt, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(RetryDelays[Math.Min(attempt, RetryDelays.Length - 1)], cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -96,22 +94,22 @@ public sealed class GeminiClient
             }
         }
 
+        _logger.Error("Gemini request failed.", lastException);
         throw lastException ?? new InvalidOperationException("Gemini request failed.");
     }
 
-    private static HttpRequestMessage BuildHttpRequest(object payload, string modelId, string apiKey)
+    private static HttpRequestMessage BuildMessage(string modelId, string apiKey, object payload)
     {
-        var json = JsonSerializer.Serialize(payload);
         var message = new HttpRequestMessage(HttpMethod.Post, $"v1beta/models/{modelId}:generateContent")
         {
-            Content = new StringContent(json, Encoding.UTF8, "application/json")
+            Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
         };
         message.Headers.Add("x-goog-api-key", apiKey);
         message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return message;
     }
 
-    private static object BuildPayload(string prompt, byte[] imageBytes, string thinkingLevel)
+    private static object BuildPayload(string prompt, byte[] imagePng, string thinkingLevel)
     {
         return new
         {
@@ -127,7 +125,7 @@ public sealed class GeminiClient
                             inlineData = new
                             {
                                 mimeType = "image/png",
-                                data = Convert.ToBase64String(imageBytes)
+                                data = Convert.ToBase64String(imagePng)
                             }
                         }
                     }
@@ -143,14 +141,6 @@ public sealed class GeminiClient
         };
     }
 
-    private static async Task DelayBeforeRetry(int attempt, CancellationToken cancellationToken)
-    {
-        var delay = attempt < DefaultRetryDelays.Length
-            ? DefaultRetryDelays[attempt]
-            : DefaultRetryDelays[^1];
-        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-    }
-
     private static bool IsTransient(HttpStatusCode statusCode)
     {
         return statusCode is HttpStatusCode.RequestTimeout
@@ -161,35 +151,22 @@ public sealed class GeminiClient
             or HttpStatusCode.GatewayTimeout;
     }
 
-    private static bool IsRetriableException(Exception exception)
-    {
-        return exception is HttpRequestException or TaskCanceledException;
-    }
-
-    private static string? TryParseApiError(string body)
+    private static string? TryParseError(string body)
     {
         try
         {
             using var doc = JsonDocument.Parse(body);
-            if (!doc.RootElement.TryGetProperty("error", out var error))
-            {
-                return null;
-            }
-
-            if (error.TryGetProperty("message", out var message))
-            {
-                return message.GetString();
-            }
+            return doc.RootElement.TryGetProperty("error", out var error) && error.TryGetProperty("message", out var message)
+                ? message.GetString()
+                : null;
         }
-        catch (JsonException)
+        catch
         {
             return null;
         }
-
-        return null;
     }
 
-    private static string? ParseTextResponse(string body)
+    private static string? ParseText(string body)
     {
         using var doc = JsonDocument.Parse(body);
         if (!doc.RootElement.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0)
@@ -197,8 +174,7 @@ public sealed class GeminiClient
             return null;
         }
 
-        var content = candidates[0].GetProperty("content");
-        if (!content.TryGetProperty("parts", out var parts))
+        if (!candidates[0].TryGetProperty("content", out var content) || !content.TryGetProperty("parts", out var parts))
         {
             return null;
         }
@@ -206,39 +182,23 @@ public sealed class GeminiClient
         var text = new StringBuilder();
         foreach (var part in parts.EnumerateArray())
         {
-            if (part.TryGetProperty("text", out var textElement))
+            if (part.TryGetProperty("text", out var textPart))
             {
-                text.AppendLine(textElement.GetString());
+                text.AppendLine(textPart.GetString());
             }
         }
 
         return text.ToString().Trim();
     }
 
-    private static int? ParseInputTokens(string body)
+    private static int? ParseTokenField(string body, string field)
     {
         using var doc = JsonDocument.Parse(body);
-        return TryReadTokenField(doc, "promptTokenCount");
-    }
-
-    private static int? ParseOutputTokens(string body)
-    {
-        using var doc = JsonDocument.Parse(body);
-        return TryReadTokenField(doc, "candidatesTokenCount");
-    }
-
-    private static int? TryReadTokenField(JsonDocument doc, string propertyName)
-    {
-        if (!doc.RootElement.TryGetProperty("usageMetadata", out var usage))
+        if (!doc.RootElement.TryGetProperty("usageMetadata", out var usage) || !usage.TryGetProperty(field, out var tokenValue))
         {
             return null;
         }
 
-        if (!usage.TryGetProperty(propertyName, out var value))
-        {
-            return null;
-        }
-
-        return value.ValueKind == JsonValueKind.Number ? value.GetInt32() : null;
+        return tokenValue.ValueKind == JsonValueKind.Number ? tokenValue.GetInt32() : null;
     }
 }

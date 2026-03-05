@@ -9,8 +9,7 @@
               label="Analyze Selection"
               size="large"
               imageMso="ReviewNewComment"
-              onAction="OnAnalyzeSelectionClicked"
-              getLabel="GetAnalyzeSelectionLabel" />
+              onAction="OnAnalyzeSelectionClicked" />
         </group>
       </tab>
     </tabs>

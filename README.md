@@ -1,45 +1,59 @@
-# OneNote Analyze COM Add-In
+# Global Capture Assistant (Standalone) + OneNote Add-In
 
-OneNote Desktop COM add-in with:
-- Ribbon button: `Analyze Selection`
-- Global hotkey: `Ctrl+Shift+Q`
-- WPF companion sidebar (modern glassmorphism-lite look)
-- Overlay region capture
-- Gemini analysis request with optional page metadata
+This repo now includes a standalone desktop app that works in all applications.
 
-## Project layout
-- `src/OneNoteAnalyzeAddIn`: COM add-in + WPF UI + Gemini client
-- `tests/OneNoteAnalyzeAddIn.Tests`: unit tests for prompt/composition/settings behavior
-- `scripts/Register-OneNoteAddIn.ps1`: register COM host + OneNote add-in registry keys
-- `scripts/Unregister-OneNoteAddIn.ps1`: unregister and cleanup
+## Standalone app (recommended)
 
-## Build
+`src/GlobalCaptureAssistant`
+
+Features:
+- Floating capture button (always on top)
+- Global hotkey: `Ctrl + Shift + Q`
+- Region capture overlay
+- Pinned modern glass-style sidebar
+- Gemini image analysis
+- Active-window context tagging (title/process)
+- Option bar in sidebar:
+  - model selection
+  - thinking level
+  - launch-on-sign-in toggle
+
+### Build
 ```powershell
 dotnet restore
-dotnet build OneNoteAnalyzeAddIn.slnx
+dotnet build src\GlobalCaptureAssistant\GlobalCaptureAssistant.csproj -c Debug
 ```
 
-## Register in OneNote
-1. Build the add-in in `Debug` or `Release`.
-2. Run:
+### Run
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\Register-OneNoteAddIn.ps1 -Configuration Debug
+dotnet run --project src\GlobalCaptureAssistant\GlobalCaptureAssistant.csproj -c Debug
 ```
-3. Restart OneNote Desktop.
 
-## First run
-- Trigger `Analyze Selection` from Ribbon or `Ctrl+Shift+Q`.
-- Enter Gemini API key when prompted.
-- Key is stored encrypted using Windows DPAPI in:
-  `%AppData%\OneNoteAnalyzeAddIn\settings.json`
+### Publish EXE
+```powershell
+dotnet publish src\GlobalCaptureAssistant\GlobalCaptureAssistant.csproj `
+  -c Release `
+  -r win-x64 `
+  --self-contained false `
+  /p:PublishSingleFile=true
+```
 
-## Gemini model settings
-Defaults:
-- Model: `gemini-3.1-pro-preview`
-- API endpoint: `v1beta/models/{model}:generateContent`
-- Auth header: `x-goog-api-key`
-- Thinking level: `low`
+Published output:
+`src\GlobalCaptureAssistant\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\GlobalCaptureAssistant.exe`
 
-## Known notes
-- This implementation targets OneNote Desktop (2016/365) COM host.
-- OneNote page metadata extraction is best-effort and falls back gracefully.
+### First run
+- Enter your Gemini API key when prompted.
+- API key is stored encrypted with Windows DPAPI at:
+  `%AppData%\GlobalCaptureAssistant\settings.json`
+- Logs are written to:
+  `%LocalAppData%\GlobalCaptureAssistant\logs\`
+
+## OneNote COM add-in (legacy path)
+
+`src/OneNoteAnalyzeAddIn` remains in the solution, but the standalone app is the primary path for reliability and cross-application usage.
+
+## Solution build
+```powershell
+dotnet build OneNoteAnalyzeAddIn.slnx -c Debug
+dotnet test OneNoteAnalyzeAddIn.slnx -c Debug --no-build
+```

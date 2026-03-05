@@ -14,6 +14,7 @@ public sealed class CompanionViewModel : INotifyPropertyChanged
     private string _resultText = "Capture a region from OneNote to begin analysis.";
     private string _metadataText = "No page metadata yet.";
     private string _errorText = string.Empty;
+    private string _noticeText = string.Empty;
     private Func<Task>? _retryAction;
     private bool _canRetry;
 
@@ -55,6 +56,20 @@ public sealed class CompanionViewModel : INotifyPropertyChanged
         get => _errorText;
         set => SetField(ref _errorText, value);
     }
+
+    public string NoticeText
+    {
+        get => _noticeText;
+        set
+        {
+            if (SetField(ref _noticeText, value))
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasNotice)));
+            }
+        }
+    }
+
+    public bool HasNotice => !string.IsNullOrWhiteSpace(NoticeText);
 
     public bool CanRetry
     {

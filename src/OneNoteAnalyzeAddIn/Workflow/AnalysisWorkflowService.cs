@@ -19,6 +19,8 @@ public sealed class AnalysisWorkflowService : IAnalysisWorkflowService
     private readonly SettingsStore _settingsStore;
     private readonly AppLogger _logger;
     private readonly SemaphoreSlim _semaphore = new(1, 1);
+    private AnalyzeRequest? _lastAnalyzeRequest;
+    private string _lastCaptureTitle = "Captured region";
 
     public AnalysisWorkflowService(
         CompanionWindowManager windowManager,
@@ -38,7 +40,15 @@ public sealed class AnalysisWorkflowService : IAnalysisWorkflowService
         _logger = logger;
     }
 
-    public async Task StartAnalysisFromCaptureAsync(CancellationToken cancellationToken = default)
+    public Task StartAnalysisFromCaptureAsync(CancellationToken cancellationToken = default)
+        => ExecuteWorkflowAsync(reuseLastCapture: false, cancellationToken);
+
+    public void SetStartupNotice(string? message)
+    {
+        _windowManager.ViewModel.NoticeText = message ?? string.Empty;
+    }
+
+    private async Task ExecuteWorkflowAsync(bool reuseLastCapture, CancellationToken cancellationToken)
     {
         if (!await _semaphore.WaitAsync(0, cancellationToken).ConfigureAwait(true))
         {
@@ -49,50 +59,60 @@ public sealed class AnalysisWorkflowService : IAnalysisWorkflowService
         {
             _windowManager.Show();
             var vm = _windowManager.ViewModel;
-            vm.SetRetryAction(() => StartAnalysisFromCaptureAsync(CancellationToken.None));
+            vm.SetRetryAction(() => ExecuteWorkflowAsync(reuseLastCapture: true, CancellationToken.None));
 
             if (!EnsureApiKey(vm))
             {
+                vm.SetRetryAction(() => ExecuteWorkflowAsync(reuseLastCapture: false, CancellationToken.None));
                 return;
             }
 
-            vm.State = AnalysisViewState.Capturing;
-            vm.StatusText = "Select an area to analyze";
-            vm.ErrorText = string.Empty;
-            vm.CanRetry = false;
-
-            var capture = await _overlayCaptureService.CaptureRegionAsync(cancellationToken).ConfigureAwait(true);
-            if (capture.IsCanceled || capture.PngBytes is null)
+            AnalyzeRequest? request = reuseLastCapture ? _lastAnalyzeRequest : null;
+            if (request is null)
             {
-                vm.State = AnalysisViewState.Idle;
-                vm.StatusText = "Capture canceled";
-                return;
-            }
+                vm.State = AnalysisViewState.Capturing;
+                vm.StatusText = "Select an area to analyze";
+                vm.ErrorText = string.Empty;
+                vm.CanRetry = false;
 
-            var correlationId = Guid.NewGuid().ToString("N")[..8];
-            var pageContext = _settings.IncludeMetadata ? _oneNoteContextProvider.TryGetActivePageContext(correlationId) : null;
-            vm.MetadataText = pageContext is null
-                ? "No page metadata available."
-                : $"{pageContext.NotebookName} / {pageContext.SectionName} / {pageContext.PageTitle}";
+                var capture = await _overlayCaptureService.CaptureRegionAsync(cancellationToken).ConfigureAwait(true);
+                if (capture.IsCanceled || capture.PngBytes is null)
+                {
+                    vm.State = AnalysisViewState.Idle;
+                    vm.StatusText = "Capture canceled";
+                    return;
+                }
+
+                var correlationId = Guid.NewGuid().ToString("N")[..8];
+                var pageContext = _settings.IncludeMetadata ? _oneNoteContextProvider.TryGetActivePageContext(correlationId) : null;
+                vm.MetadataText = pageContext is null
+                    ? "No page metadata available."
+                    : $"{pageContext.NotebookName} / {pageContext.SectionName} / {pageContext.PageTitle} / {pageContext.PageId}";
+
+                _lastCaptureTitle = pageContext?.PageTitle ?? "Captured region";
+                request = new AnalyzeRequest(
+                    capture.PngBytes,
+                    pageContext,
+                    "Summarize what is shown and suggest next actions.",
+                    correlationId);
+                _lastAnalyzeRequest = request;
+            }
+            else
+            {
+                vm.StatusText = "Retrying last capture...";
+            }
 
             vm.State = AnalysisViewState.Uploading;
-            vm.StatusText = "Analyzing with Gemini…";
-
-            var request = new AnalyzeRequest(
-                capture.PngBytes,
-                pageContext,
-                "Summarize what is shown and suggest next actions.",
-                correlationId);
-
+            vm.StatusText = "Analyzing with Gemini...";
             var response = await _geminiClient.AnalyzeImageAsync(request, cancellationToken).ConfigureAwait(true);
 
             vm.State = AnalysisViewState.Rendering;
             vm.StatusText = $"Done in {response.Latency.TotalSeconds:F1}s";
             vm.ResultText = response.Text;
             vm.ErrorText = string.Empty;
-            vm.AppendHistory(pageContext?.PageTitle ?? "Captured region", response.Text.Length > 120 ? $"{response.Text[..120]}..." : response.Text);
-            vm.State = AnalysisViewState.Idle;
             vm.CanRetry = false;
+            vm.AppendHistory(_lastCaptureTitle, response.Text.Length > 120 ? $"{response.Text[..120]}..." : response.Text);
+            vm.State = AnalysisViewState.Idle;
         }
         catch (Exception ex)
         {
@@ -100,7 +120,7 @@ public sealed class AnalysisWorkflowService : IAnalysisWorkflowService
             vm.State = AnalysisViewState.Error;
             vm.StatusText = "Analysis failed";
             vm.ErrorText = ex.Message;
-            vm.CanRetry = true;
+            vm.CanRetry = _lastAnalyzeRequest is not null;
             _logger.Error("Analysis workflow failed.", ex);
         }
         finally

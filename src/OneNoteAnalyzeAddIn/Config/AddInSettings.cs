@@ -8,5 +8,7 @@ public sealed class AddInSettings
     public string HotkeyKey { get; set; } = "Q";
     public string ModelId { get; set; } = "gemini-3.1-pro-preview";
     public string ThinkingLevel { get; set; } = "low";
+    public int RequestTimeoutSeconds { get; set; } = 45;
+    public int MaxRetries { get; set; } = 2;
     public string? EncryptedApiKey { get; set; }
 }

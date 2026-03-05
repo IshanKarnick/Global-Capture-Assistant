@@ -7,6 +7,9 @@ namespace OneNoteAnalyzeAddIn.OneNote;
 
 public sealed class OneNoteContextProvider
 {
+    private const int HierarchyScopeSelf = 0;
+    private const int XmlSchemaCurrent = 2;
+
     private readonly object _oneNoteApplication;
     private readonly AppLogger _logger;
 
@@ -50,18 +53,36 @@ public sealed class OneNoteContextProvider
 
     private string? TryGetPageContent(string pageId)
     {
-        // GetPageContent(pageId, out xml, piAll)
-        var parameters = new object?[] { pageId, null, 0 };
-        var result = InvokeMethod(_oneNoteApplication, "GetPageContent", parameters);
-        return result as string ?? parameters[1] as string;
+        var args3 = new object?[] { pageId, null, 0 };
+        if (TryInvoke(_oneNoteApplication, "GetPageContent", args3))
+        {
+            return args3[1] as string;
+        }
+
+        var args2 = new object?[] { pageId, null };
+        if (TryInvoke(_oneNoteApplication, "GetPageContent", args2))
+        {
+            return args2[1] as string;
+        }
+
+        return null;
     }
 
     private string? TryGetHierarchyXml(string pageId)
     {
-        // GetHierarchy(startNodeId, hsSelf, out xml, xsCurrent)
-        var parameters = new object?[] { pageId, 0, null, 2 };
-        var result = InvokeMethod(_oneNoteApplication, "GetHierarchy", parameters);
-        return result as string ?? parameters[2] as string;
+        var args4 = new object?[] { pageId, HierarchyScopeSelf, null, XmlSchemaCurrent };
+        if (TryInvoke(_oneNoteApplication, "GetHierarchy", args4))
+        {
+            return args4[2] as string;
+        }
+
+        var args3 = new object?[] { pageId, HierarchyScopeSelf, null };
+        if (TryInvoke(_oneNoteApplication, "GetHierarchy", args3))
+        {
+            return args3[2] as string;
+        }
+
+        return null;
     }
 
     private static PageContext BuildContext(string pageId, string pageXml, string? hierarchyXml)
@@ -70,14 +91,18 @@ public sealed class OneNoteContextProvider
         var page = pageDoc.Descendants().FirstOrDefault(e => e.Name.LocalName.Equals("Page", StringComparison.OrdinalIgnoreCase));
         var title = page?.Attribute("name")?.Value ?? "Untitled";
 
-        string sectionName = "Unknown section";
-        string notebookName = "Unknown notebook";
+        var sectionName = "Unknown section";
+        var notebookName = "Unknown notebook";
 
         if (!string.IsNullOrWhiteSpace(hierarchyXml))
         {
             var hierarchyDoc = XDocument.Parse(hierarchyXml);
-            sectionName = hierarchyDoc.Descendants().FirstOrDefault(e => e.Name.LocalName.Equals("Section", StringComparison.OrdinalIgnoreCase))?.Attribute("name")?.Value ?? sectionName;
-            notebookName = hierarchyDoc.Descendants().FirstOrDefault(e => e.Name.LocalName.Equals("Notebook", StringComparison.OrdinalIgnoreCase))?.Attribute("name")?.Value ?? notebookName;
+            sectionName = hierarchyDoc.Descendants()
+                .FirstOrDefault(e => e.Name.LocalName.Equals("Section", StringComparison.OrdinalIgnoreCase))
+                ?.Attribute("name")?.Value ?? sectionName;
+            notebookName = hierarchyDoc.Descendants()
+                .FirstOrDefault(e => e.Name.LocalName.Equals("Notebook", StringComparison.OrdinalIgnoreCase))
+                ?.Attribute("name")?.Value ?? notebookName;
         }
 
         return new PageContext(pageId, title, sectionName, notebookName);
@@ -89,8 +114,16 @@ public sealed class OneNoteContextProvider
         return property?.GetValue(target);
     }
 
-    private static object? InvokeMethod(object target, string methodName, object?[] parameters)
+    private static bool TryInvoke(object target, string methodName, object?[] parameters)
     {
-        return target.GetType().InvokeMember(methodName, BindingFlags.InvokeMethod, binder: null, target: target, args: parameters);
+        try
+        {
+            _ = target.GetType().InvokeMember(methodName, BindingFlags.InvokeMethod, binder: null, target: target, args: parameters);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

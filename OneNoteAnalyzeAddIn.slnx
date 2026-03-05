@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/GlobalCaptureAssistant/GlobalCaptureAssistant.csproj" />
     <Project Path="src/OneNoteAnalyzeAddIn/OneNoteAnalyzeAddIn.csproj" />
   </Folder>
   <Folder Name="/tests/">

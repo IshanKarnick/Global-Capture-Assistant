@@ -34,6 +34,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
@@ -63,7 +64,15 @@
                 </StackPanel>
             </Border>
 
-            <ScrollViewer Grid.Row="2"
+            <Border Grid.Row="2"
+                    Style="{StaticResource GlassCard}"
+                    Visibility="{Binding HasNotice, Converter={StaticResource BoolToVisibilityConverter}}">
+                <TextBlock Text="{Binding NoticeText}"
+                           Foreground="#FF5A2A0A"
+                           TextWrapping="Wrap" />
+            </Border>
+
+            <ScrollViewer Grid.Row="3"
                           VerticalScrollBarVisibility="Auto">
                 <StackPanel>
                     <Border Style="{StaticResource GlassCard}">
@@ -100,7 +109,7 @@
                 </StackPanel>
             </ScrollViewer>
 
-            <Border Grid.Row="3" Style="{StaticResource GlassCard}" Margin="0,12,0,0">
+            <Border Grid.Row="4" Style="{StaticResource GlassCard}" Margin="0,12,0,0">
                 <StackPanel>
                     <TextBlock Text="Recent Analyses"
                                FontSize="13"

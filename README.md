@@ -1,35 +1,31 @@
-# Global Capture Assistant (Standalone) + OneNote Add-In
+# Global Capture Assistant
 
-This repo now includes a standalone desktop app that works in all applications.
+Standalone Windows capture assistant (no OneNote add-in).
 
-## Standalone app (recommended)
-
-`src/GlobalCaptureAssistant`
-
-Features:
-- Floating capture button (always on top)
+## What it does
+- Always-on-top floating capture button (draggable)
 - Global hotkey: `Ctrl + Shift + Q`
 - Region capture overlay
-- Pinned modern glass-style sidebar
-- Gemini image analysis
-- Active-window context tagging (title/process)
-- Option bar in sidebar:
-  - model selection
-  - thinking level
-  - launch-on-sign-in toggle
+- Modern glass sidebar with result + chat-more follow-ups
+- Two-step AI flow:
+  - Step 1: image analysis (Gemini model from settings)
+  - Step 2: suggested follow-up prompts (`gemma-3-27b-it`)
 
-### Build
+## Project path
+- `src/GlobalCaptureAssistant`
+
+## Build
 ```powershell
 dotnet restore
 dotnet build src\GlobalCaptureAssistant\GlobalCaptureAssistant.csproj -c Debug
 ```
 
-### Run
+## Run
 ```powershell
 dotnet run --project src\GlobalCaptureAssistant\GlobalCaptureAssistant.csproj -c Debug
 ```
 
-### Publish EXE
+## Publish EXE
 ```powershell
 dotnet publish src\GlobalCaptureAssistant\GlobalCaptureAssistant.csproj `
   -c Release `
@@ -41,19 +37,14 @@ dotnet publish src\GlobalCaptureAssistant\GlobalCaptureAssistant.csproj `
 Published output:
 `src\GlobalCaptureAssistant\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\GlobalCaptureAssistant.exe`
 
-### First run
+## First run
 - Enter your Gemini API key when prompted.
-- API key is stored encrypted with Windows DPAPI at:
+- Key is stored with Windows DPAPI in:
   `%AppData%\GlobalCaptureAssistant\settings.json`
 - Logs are written to:
   `%LocalAppData%\GlobalCaptureAssistant\logs\`
 
-## OneNote COM add-in (legacy path)
-
-`src/OneNoteAnalyzeAddIn` remains in the solution, but the standalone app is the primary path for reliability and cross-application usage.
-
-## Solution build
+## Repository solution build
 ```powershell
 dotnet build OneNoteAnalyzeAddIn.slnx -c Debug
-dotnet test OneNoteAnalyzeAddIn.slnx -c Debug --no-build
 ```

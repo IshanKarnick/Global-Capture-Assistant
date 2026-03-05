@@ -23,14 +23,12 @@ public sealed class GeminiClient
     private readonly HttpClient _httpClient;
     private readonly SettingsStore _settingsStore;
     private readonly AppSettings _settings;
-    private readonly GeminiPromptComposer _promptComposer;
     private readonly AppLogger _logger;
 
-    public GeminiClient(SettingsStore settingsStore, AppSettings settings, GeminiPromptComposer promptComposer, AppLogger logger)
+    public GeminiClient(SettingsStore settingsStore, AppSettings settings, AppLogger logger)
     {
         _settingsStore = settingsStore;
         _settings = settings;
-        _promptComposer = promptComposer;
         _logger = logger;
 
         _httpClient = new HttpClient
@@ -49,7 +47,7 @@ public sealed class GeminiClient
         }
 
         var modelId = string.IsNullOrWhiteSpace(_settings.ModelId) ? "gemini-3.1-pro-preview" : _settings.ModelId;
-        var payload = BuildPayload(_promptComposer.ComposePrompt(request), request.ImagePng, _settings.ThinkingLevel);
+        var payload = BuildPayload(request.ImagePng);
         var maxRetries = Math.Max(0, _settings.MaxRetries);
 
         Exception? lastException = null;
@@ -109,7 +107,7 @@ public sealed class GeminiClient
         return message;
     }
 
-    private static object BuildPayload(string prompt, byte[] imagePng, string thinkingLevel)
+    private static object BuildPayload(byte[] imagePng)
     {
         return new
         {
@@ -119,7 +117,6 @@ public sealed class GeminiClient
                 {
                     parts = new object[]
                     {
-                        new { text = prompt },
                         new
                         {
                             inlineData = new
@@ -129,13 +126,6 @@ public sealed class GeminiClient
                             }
                         }
                     }
-                }
-            },
-            generationConfig = new
-            {
-                thinkingConfig = new
-                {
-                    thinkingLevel = string.IsNullOrWhiteSpace(thinkingLevel) ? "low" : thinkingLevel
                 }
             }
         };

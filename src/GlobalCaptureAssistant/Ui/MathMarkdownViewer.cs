@@ -1,18 +1,24 @@
 using System.Text.RegularExpressions;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Input;
-using MdXaml;
 using WpfMath.Controls;
+
+// Explicit aliases to resolve WPF vs WinForms ambiguity (UseWindowsForms=true in csproj)
+using UserControl          = System.Windows.Controls.UserControl;
+using StackPanel           = System.Windows.Controls.StackPanel;
+using TextBlock            = System.Windows.Controls.TextBlock;
+using Border               = System.Windows.Controls.Border;
+using ScrollBarVisibility  = System.Windows.Controls.ScrollBarVisibility;
+using MarkdownScrollViewer = MdXaml.MarkdownScrollViewer;
 
 namespace GlobalCaptureAssistant.Ui;
 
 /// <summary>
-/// A markdown viewer that additionally renders LaTeX math expressions
-/// ($…$, $$…$$, \(…\), \[…\]) using WpfMath.
-/// Non-math segments are rendered by MdXaml.
+/// Renders markdown with WpfMath for all LaTeX math ($$, $, \[, \().
+/// Block equations get their own centered row; inline equations are rendered
+/// within the flow but may appear on a separate line given WPF layout constraints.
 /// </summary>
-public sealed class MathMarkdownViewer : System.Windows.Controls.UserControl
+public sealed class MathMarkdownViewer : UserControl
 {
     // ── Dependency property ───────────────────────────────────────────────────
 
@@ -29,12 +35,11 @@ public sealed class MathMarkdownViewer : System.Windows.Controls.UserControl
         set => SetValue(MarkdownProperty, value);
     }
 
-    // ── Math split pattern ────────────────────────────────────────────────────
+    // ── Regex — block delimiters FIRST so $$ isn't matched as two $'s ─────────
 
-    // Order matters: block delimiters must come before inline ones.
     private static readonly Regex MathSplitter = new(
-        @"(\$\$.+?\$\$|\\\[.+?\\\]|\$.+?\$|\\\(.+?\\\))",
-        RegexOptions.Singleline | RegexOptions.Compiled);
+        @"(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\$[^\$\n]+?\$|\\\([^\)]+?\\\))",
+        RegexOptions.Compiled);
 
     // ── Fields ────────────────────────────────────────────────────────────────
 
@@ -58,30 +63,54 @@ public sealed class MathMarkdownViewer : System.Windows.Controls.UserControl
         _panel.Children.Clear();
         if (string.IsNullOrEmpty(text)) return;
 
-        foreach (var seg in Split(text))
+        int last = 0;
+        foreach (Match m in MathSplitter.Matches(text))
         {
-            if (seg.IsMath)
-                _panel.Children.Add(BuildMathElement(seg.Content, seg.IsBlock));
-            else if (!string.IsNullOrWhiteSpace(seg.Content))
-                _panel.Children.Add(BuildMarkdownElement(seg.Content));
+            if (m.Index > last)
+            {
+                var mdText = text[last..m.Index];
+                if (!string.IsNullOrWhiteSpace(mdText))
+                    _panel.Children.Add(BuildMarkdownElement(mdText));
+            }
+
+            string raw = m.Value;
+            bool isBlock = raw.StartsWith("$$", StringComparison.Ordinal)
+                        || raw.StartsWith(@"\[", StringComparison.Ordinal);
+            string inner = StripDelimiters(raw);
+            _panel.Children.Add(BuildMathElement(inner, isBlock));
+            last = m.Index + m.Length;
         }
+
+        if (last < text.Length)
+        {
+            var tail = text[last..];
+            if (!string.IsNullOrWhiteSpace(tail))
+                _panel.Children.Add(BuildMarkdownElement(tail));
+        }
+    }
+
+    private static string StripDelimiters(string raw)
+    {
+        if (raw.StartsWith("$$",  StringComparison.Ordinal) && raw.EndsWith("$$",  StringComparison.Ordinal)) return raw[2..^2].Trim();
+        if (raw.StartsWith(@"\[", StringComparison.Ordinal) && raw.EndsWith(@"\]", StringComparison.Ordinal)) return raw[2..^2].Trim();
+        if (raw.StartsWith(@"\(", StringComparison.Ordinal) && raw.EndsWith(@"\)", StringComparison.Ordinal)) return raw[2..^2].Trim();
+        if (raw.StartsWith("$",   StringComparison.Ordinal) && raw.EndsWith("$",   StringComparison.Ordinal)) return raw[1..^1].Trim();
+        return raw;
     }
 
     private UIElement BuildMarkdownElement(string mdText)
     {
         var viewer = new MarkdownScrollViewer
         {
-            Markdown = mdText.Trim(),
+            Markdown                      = mdText.Trim(),
             VerticalScrollBarVisibility   = ScrollBarVisibility.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Background = System.Windows.Media.Brushes.Transparent,
-            Padding    = new Thickness(0),
-            Margin     = new Thickness(0),
-            FontSize   = FontSize,
-            Foreground = Foreground,
+            Background                    = System.Windows.Media.Brushes.Transparent,
+            Padding                       = new Thickness(0),
+            Margin                        = new Thickness(0),
+            FontSize                      = FontSize,
+            Foreground                    = Foreground,
         };
-
-        // Bubble mouse-wheel events to our parent ScrollViewer
         viewer.PreviewMouseWheel += PassMouseWheel;
         return viewer;
     }
@@ -93,74 +122,37 @@ public sealed class MathMarkdownViewer : System.Windows.Controls.UserControl
             var ctrl = new FormulaControl
             {
                 Formula           = formula,
-                Scale             = 14,
+                Scale             = isBlock ? 16 : 13,
                 VerticalAlignment = System.Windows.VerticalAlignment.Center,
-                Margin            = isBlock
-                    ? new Thickness(0, 6, 0, 6)
-                    : new Thickness(2, 2, 2, 2),
             };
-
-            return isBlock
-                ? (UIElement)new Border
-                  {
-                      Child               = ctrl,
-                      HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
-                      Padding             = new Thickness(8, 4, 8, 4),
-                  }
-                : ctrl;
+            if (isBlock)
+            {
+                return new Border
+                {
+                    Child               = ctrl,
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+                    Padding             = new Thickness(8, 6, 8, 6),
+                    Margin              = new Thickness(0, 4, 0, 4),
+                };
+            }
+            ctrl.Margin = new Thickness(0, 1, 0, 1);
+            return ctrl;
         }
         catch
         {
-            // WpfMath can't parse the formula — fall back to monospace text
             return new TextBlock
             {
-                Text        = $"${formula}$",
-                FontFamily  = new System.Windows.Media.FontFamily("Cascadia Code, Consolas, Courier New"),
-                FontSize    = FontSize,
-                Foreground  = Foreground,
+                Text         = $"${formula}$",
+                FontFamily   = new System.Windows.Media.FontFamily("Cascadia Code, Consolas, Courier New"),
+                FontSize     = FontSize,
+                Foreground   = Foreground,
                 TextWrapping = TextWrapping.Wrap,
-                Margin      = new Thickness(0, 2, 0, 2),
+                Margin       = new Thickness(0, 1, 0, 1),
             };
         }
     }
 
-    // ── Math/text splitting ───────────────────────────────────────────────────
-
-    private static IEnumerable<Segment> Split(string text)
-    {
-        int last = 0;
-        foreach (Match m in MathSplitter.Matches(text))
-        {
-            if (m.Index > last)
-                yield return new Segment(text[last..m.Index], false, false);
-
-            string raw = m.Value;
-            bool isBlock = raw.StartsWith("$$", StringComparison.Ordinal)
-                        || raw.StartsWith(@"\[", StringComparison.Ordinal);
-            string inner = StripDelimiters(raw);
-            yield return new Segment(inner, true, isBlock);
-
-            last = m.Index + m.Length;
-        }
-
-        if (last < text.Length)
-            yield return new Segment(text[last..], false, false);
-    }
-
-    private static string StripDelimiters(string raw)
-    {
-        if (raw.StartsWith("$$", StringComparison.Ordinal) && raw.EndsWith("$$", StringComparison.Ordinal))
-            return raw[2..^2].Trim();
-        if (raw.StartsWith(@"\[", StringComparison.Ordinal) && raw.EndsWith(@"\]", StringComparison.Ordinal))
-            return raw[2..^2].Trim();
-        if (raw.StartsWith(@"\(", StringComparison.Ordinal) && raw.EndsWith(@"\)", StringComparison.Ordinal))
-            return raw[2..^2].Trim();
-        if (raw.StartsWith("$", StringComparison.Ordinal) && raw.EndsWith("$", StringComparison.Ordinal))
-            return raw[1..^1].Trim();
-        return raw;
-    }
-
-    // ── Mouse wheel passthrough ───────────────────────────────────────────────
+    // ── Mouse-wheel passthrough ───────────────────────────────────────────────
 
     private void PassMouseWheel(object sender, MouseWheelEventArgs e)
     {
@@ -178,15 +170,11 @@ public sealed class MathMarkdownViewer : System.Windows.Controls.UserControl
         base.OnPreviewMouseWheel(e);
         if (e.Handled) return;
         e.Handled = true;
-        var parent = (UIElement)((FrameworkElement)this).Parent;
-        parent?.RaiseEvent(new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
-        {
-            RoutedEvent = MouseWheelEvent,
-            Source      = this,
-        });
+        ((UIElement?)((FrameworkElement)this).Parent)?.RaiseEvent(
+            new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
+            {
+                RoutedEvent = MouseWheelEvent,
+                Source      = this,
+            });
     }
-
-    // ── Segment record ────────────────────────────────────────────────────────
-
-    private readonly record struct Segment(string Content, bool IsMath, bool IsBlock);
 }

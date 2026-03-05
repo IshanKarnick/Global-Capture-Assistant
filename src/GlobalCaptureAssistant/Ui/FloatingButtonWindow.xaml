@@ -73,8 +73,7 @@
                     Background="Transparent"
                     BorderThickness="0"
                     Cursor="Hand"
-                    ToolTip="Capture screen region"
-                    Click="CaptureButton_Click">
+                    ToolTip="Capture screen region">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                     <!-- Camera-style icon using text -->
                     <TextBlock Text="⬡"

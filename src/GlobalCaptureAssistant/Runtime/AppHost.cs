@@ -31,7 +31,7 @@ public sealed class AppHost : IDisposable
     public AppHost()
     {
         _settings = _settingsStore.Load();
-        _geminiClient = new GeminiClient(_settingsStore, _settings, new GeminiPromptComposer(), _logger);
+        _geminiClient = new GeminiClient(_settingsStore, _settings, _logger);
         _sidebarViewModel.ApplySettings(_settings);
         _sidebarViewModel.SettingsChanged += OnSidebarSettingsChanged;
     }
@@ -169,7 +169,7 @@ public sealed class AppHost : IDisposable
         _settingsStore.SetApiKey(_settings, prompt.ApiKey);
         _settingsStore.Save(_settings);
         _settings = _settingsStore.Load();
-        _geminiClient = new GeminiClient(_settingsStore, _settings, new GeminiPromptComposer(), _logger);
+        _geminiClient = new GeminiClient(_settingsStore, _settings, _logger);
         return true;
     }
 
@@ -194,6 +194,6 @@ public sealed class AppHost : IDisposable
 
         _settingsStore.Save(_settings);
         _autoStartService.SetEnabled(_settings.AutoStartEnabled);
-        _geminiClient = new GeminiClient(_settingsStore, _settings, new GeminiPromptComposer(), _logger);
+        _geminiClient = new GeminiClient(_settingsStore, _settings, _logger);
     }
 }

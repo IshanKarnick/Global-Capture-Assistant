@@ -6,7 +6,9 @@ namespace GlobalCaptureAssistant.Ui;
 
 public partial class FloatingButtonWindow : Window
 {
-    private System.Windows.Point _mouseDownPos;
+    private System.Windows.Point _mouseDownScreen;
+    private double _windowStartLeft;
+    private double _windowStartTop;
     private bool _isPointerDown;
     private bool _isDragging;
 
@@ -31,47 +33,49 @@ public partial class FloatingButtonWindow : Window
 
     private void OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        _mouseDownPos = e.GetPosition(this);
+        _mouseDownScreen = PointToScreen(e.GetPosition(this));
+        _windowStartLeft = Left;
+        _windowStartTop = Top;
         _isPointerDown = true;
         _isDragging = false;
+        CaptureMouse();
     }
 
     private void OnPreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
-        if (!_isPointerDown || e.LeftButton != MouseButtonState.Pressed || _isDragging)
+        if (!_isPointerDown || e.LeftButton != MouseButtonState.Pressed)
         {
             return;
         }
 
-        var pos = e.GetPosition(this);
-        if (Math.Abs(pos.X - _mouseDownPos.X) <= 4 && Math.Abs(pos.Y - _mouseDownPos.Y) <= 4)
+        var screenPos = PointToScreen(e.GetPosition(this));
+        var dx = screenPos.X - _mouseDownScreen.X;
+        var dy = screenPos.Y - _mouseDownScreen.Y;
+
+        if (!_isDragging && Math.Abs(dx) <= 3 && Math.Abs(dy) <= 3)
         {
             return;
         }
 
         _isDragging = true;
-        try
-        {
-            DragMove();
-        }
-        finally
-        {
-            _isPointerDown = false;
-        }
+        Left = _windowStartLeft + dx;
+        Top = _windowStartTop + dy;
+        e.Handled = true;
     }
 
     private void OnPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        _isPointerDown = false;
-    }
+        if (_isPointerDown)
+        {
+            ReleaseMouseCapture();
+        }
 
-    private void CaptureButton_Click(object sender, RoutedEventArgs e)
-    {
         if (!_isDragging)
         {
             CaptureRequested?.Invoke(this, EventArgs.Empty);
         }
 
+        _isPointerDown = false;
         _isDragging = false;
     }
 }

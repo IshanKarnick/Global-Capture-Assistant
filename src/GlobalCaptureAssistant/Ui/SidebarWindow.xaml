@@ -140,7 +140,7 @@
     </Window.Resources>
 
     <!-- Shell — DWM handles blur, rounding, and shadow -->
-    <Border Background="#55EEF0F2"
+    <Border Background="#11EEF0F2"
             BorderBrush="#25AAAAAA"
             BorderThickness="1">
 

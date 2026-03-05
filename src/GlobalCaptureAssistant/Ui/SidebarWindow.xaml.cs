@@ -17,7 +17,7 @@ public partial class SidebarWindow : Window
         DataContext = viewModel;
         Loaded += (_, _) =>
         {
-            DwmBlurHelper.EnableAcrylic(this, 0x99F2F0EE);
+            DwmBlurHelper.EnableAcrylic(this, 0x22F2F0EE);
             SnapToRight();
         };
     }

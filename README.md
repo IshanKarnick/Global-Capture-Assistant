@@ -25,17 +25,20 @@ dotnet build src\GlobalCaptureAssistant\GlobalCaptureAssistant.csproj -c Debug
 dotnet run --project src\GlobalCaptureAssistant\GlobalCaptureAssistant.csproj -c Debug
 ```
 
-## Publish EXE
+## Package Local Release
 ```powershell
-dotnet publish src\GlobalCaptureAssistant\GlobalCaptureAssistant.csproj `
-  -c Release `
-  -r win-x64 `
-  --self-contained false `
-  /p:PublishSingleFile=true
+.\scripts\package-release.ps1
 ```
 
-Published output:
-`src\GlobalCaptureAssistant\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\GlobalCaptureAssistant.exe`
+Optional args:
+```powershell
+.\scripts\package-release.ps1 -Version 1.0.0 -Runtime win-x64
+.\scripts\package-release.ps1 -Version 1.0.0 -FrameworkDependent
+```
+
+Release output:
+- `artifacts\release\GlobalCaptureAssistant-<version>-win-x64.zip`
+- `artifacts\release\GlobalCaptureAssistant-<version>-win-x64.zip.sha256`
 
 ## First run
 - Enter your Gemini API key when prompted.

@@ -145,3 +145,11 @@ Expected output:
 - `src/GlobalCaptureAssistant` - app source
 - `scripts/package-release.ps1` - local release packaging
 - `docs/screenshots` - README image assets
+
+## License
+
+Licensed under Apache-2.0. See [LICENSE](LICENSE).
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -1,7 +1,6 @@
 # Global Capture Assistant
 
-Standalone Windows capture assistant (no OneNote add-in).
-
+Standalone Windows capture assistant 
 ## What it does
 - Always-on-top floating capture button (draggable)
 - Global hotkey: `Ctrl + Shift + Q`

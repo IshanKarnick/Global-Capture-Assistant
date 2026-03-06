@@ -27,6 +27,11 @@ public partial class SidebarWindow : Window
         _allowClose = true;
     }
 
+    public void ScrollToTop()
+    {
+        MainContentScrollViewer.ScrollToVerticalOffset(0);
+    }
+
     private void SnapToRight()
     {
         var area = SystemParameters.WorkArea;

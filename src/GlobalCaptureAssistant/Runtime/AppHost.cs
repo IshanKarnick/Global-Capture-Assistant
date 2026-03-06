@@ -49,7 +49,7 @@ public sealed class AppHost : IDisposable
         _sidebarWindow = new SidebarWindow(_sidebarViewModel);
 
         _trayIconService.CaptureRequested += (_, _) => _ = CaptureAndAnalyzeAsync(useLastCapture: false);
-        _trayIconService.ShowSidebarRequested += (_, _) => ShowSidebar();
+        _trayIconService.ShowSidebarRequested += (_, _) => ShowSidebar(activate: true);
         _trayIconService.ExitRequested += (_, _) => System.Windows.Application.Current.Shutdown();
 
         _hotkeyService.HotkeyPressed += (_, _) => _ = CaptureAndAnalyzeAsync(useLastCapture: false);
@@ -63,7 +63,7 @@ public sealed class AppHost : IDisposable
     {
         try
         {
-            ShowSidebar();
+            ShowSidebar(activate: false);
             _sidebarViewModel.SetRetryAction(() => CaptureAndAnalyzeAsync(useLastCapture: true));
             if (!EnsureApiKey())
             {
@@ -135,6 +135,11 @@ public sealed class AppHost : IDisposable
             _sidebarViewModel.CanRetry = false;
             _sidebarViewModel.StatusText = $"Done in {response.Latency.TotalSeconds:F1}s";
             _sidebarViewModel.State = AnalysisState.Idle;
+            _sidebarWindow?.ScrollToTop();
+            if (_settings.FocusSidebarAfterCapture)
+            {
+                ShowSidebar(activate: true);
+            }
         }
         catch (Exception ex)
         {
@@ -146,7 +151,7 @@ public sealed class AppHost : IDisposable
         }
     }
 
-    private async Task ChatMoreAsync(string prompt)
+    private async Task ChatMoreAsync(string prompt, bool scrollToTopOnComplete)
     {
         if (string.IsNullOrWhiteSpace(prompt))
         {
@@ -161,7 +166,7 @@ public sealed class AppHost : IDisposable
 
         try
         {
-            ShowSidebar();
+            ShowSidebar(activate: true);
             if (!EnsureApiKey())
             {
                 _sidebarViewModel.StatusText = "Gemini API key is required.";
@@ -191,6 +196,10 @@ public sealed class AppHost : IDisposable
             _sidebarViewModel.StatusText = $"Done in {response.Latency.TotalSeconds:F1}s";
             _sidebarViewModel.State = AnalysisState.Idle;
             _sidebarViewModel.CanRetry = false;
+            if (scrollToTopOnComplete)
+            {
+                _sidebarWindow?.ScrollToTop();
+            }
         }
         catch (Exception ex)
         {
@@ -202,15 +211,24 @@ public sealed class AppHost : IDisposable
         }
     }
 
-    private void ShowSidebar()
+    private void ShowSidebar(bool activate)
     {
         if (_sidebarWindow is null)
         {
             _sidebarWindow = new SidebarWindow(_sidebarViewModel);
         }
 
+        _sidebarWindow.ShowActivated = activate;
+        if (_sidebarWindow.WindowState == WindowState.Minimized)
+        {
+            _sidebarWindow.WindowState = WindowState.Normal;
+        }
+
         _sidebarWindow.Show();
-        _sidebarWindow.Activate();
+        if (activate)
+        {
+            _sidebarWindow.Activate();
+        }
     }
 
     private bool EnsureApiKey()
@@ -253,6 +271,7 @@ public sealed class AppHost : IDisposable
         _settings.ModelId = _sidebarViewModel.SelectedModelId;
         _settings.ThinkingLevel = _sidebarViewModel.SelectedThinkingLevel;
         _settings.AutoStartEnabled = _sidebarViewModel.AutoStartEnabled;
+        _settings.FocusSidebarAfterCapture = _sidebarViewModel.FocusSidebarAfterCapture;
 
         _settingsStore.Save(_settings);
         _autoStartService.SetEnabled(_settings.AutoStartEnabled);

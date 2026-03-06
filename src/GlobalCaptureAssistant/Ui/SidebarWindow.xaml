@@ -230,6 +230,12 @@
                                               Foreground="#CC1A1A1A"
                                               Margin="0,0,0,10" />
 
+                                    <TextBlock Text="FOCUS" Style="{StaticResource SectionLabel}" />
+                                    <CheckBox Content="Focus sidebar after capture"
+                                              IsChecked="{Binding FocusSidebarAfterCapture, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              Foreground="#CC1A1A1A"
+                                              Margin="0,0,0,10" />
+
                                     <!-- Hotkey (read-only) -->
                                     <TextBlock Text="HOTKEY" Style="{StaticResource SectionLabel}" />
                                     <Border Background="#22000000" CornerRadius="5" Padding="8,4" HorizontalAlignment="Left">
@@ -257,7 +263,8 @@
             </Border>
 
             <!-- ── Scrollable body ── -->
-            <ScrollViewer Grid.Row="1"
+            <ScrollViewer x:Name="MainContentScrollViewer"
+                          Grid.Row="1"
                           VerticalScrollBarVisibility="Auto"
                           Padding="14,10,14,14">
                 <StackPanel>

@@ -3,6 +3,7 @@ namespace GlobalCaptureAssistant.Config;
 public sealed class AppSettings
 {
     public bool AutoStartEnabled { get; set; } = true;
+    public bool FocusSidebarAfterCapture { get; set; } = true;
     public bool SidebarPinned { get; set; } = true;
     public bool ReducedMotion { get; set; } = false;
     public string ModelId { get; set; } = "gemini-3.1-pro-preview";

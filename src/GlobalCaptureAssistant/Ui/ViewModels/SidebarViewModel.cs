@@ -35,9 +35,10 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
     private string _selectedModelId = "gemini-3.1-pro-preview";
     private string _selectedThinkingLevel = "low";
     private bool _autoStartEnabled = true;
+    private bool _focusSidebarAfterCapture = true;
     private bool _suppressSettingsChanged;
     private string _chatInput = string.Empty;
-    private Func<string, Task>? _chatSendAction;
+    private Func<string, bool, Task>? _chatSendAction;
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler? SettingsChanged;
@@ -45,7 +46,7 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
     public SidebarViewModel()
     {
         RetryCommand = new AsyncRelayCommand(RetryAsync, () => CanRetry);
-        SendChatCommand = new AsyncRelayCommand(SendChatAsync, () => CanSendChat);
+        SendChatCommand = new AsyncRelayCommand(SendChatFromInputAsync, () => CanSendChat);
     }
 
     public ObservableCollection<ChatTurn> ChatTurns { get; } = [];
@@ -138,6 +139,18 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         }
     }
 
+    public bool FocusSidebarAfterCapture
+    {
+        get => _focusSidebarAfterCapture;
+        set
+        {
+            if (SetField(ref _focusSidebarAfterCapture, value))
+            {
+                RaiseSettingsChanged();
+            }
+        }
+    }
+
     public string ChatInput
     {
         get => _chatInput;
@@ -165,7 +178,7 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         CanRetry = retryAction is not null;
     }
 
-    public void SetChatSendAction(Func<string, Task>? sendAction)
+    public void SetChatSendAction(Func<string, bool, Task>? sendAction)
     {
         _chatSendAction = sendAction;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanSendChat)));
@@ -184,6 +197,7 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
                 ? "low"
                 : settings.ThinkingLevel;
             AutoStartEnabled = settings.AutoStartEnabled;
+            FocusSidebarAfterCapture = settings.FocusSidebarAfterCapture;
         }
         finally
         {
@@ -229,7 +243,7 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         }
 
         ChatInput = prompt.Trim();
-        await SendChatAsync().ConfigureAwait(true);
+        await SendChatAsync(isSuggestedPrompt: true).ConfigureAwait(true);
     }
 
     private async Task RetryAsync()
@@ -242,7 +256,12 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         await _retryAction().ConfigureAwait(true);
     }
 
-    private async Task SendChatAsync()
+    private async Task SendChatFromInputAsync()
+    {
+        await SendChatAsync(isSuggestedPrompt: false).ConfigureAwait(true);
+    }
+
+    private async Task SendChatAsync(bool isSuggestedPrompt)
     {
         var prompt = ChatInput.Trim();
         if (string.IsNullOrWhiteSpace(prompt) || _chatSendAction is null)
@@ -251,7 +270,7 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         }
 
         ChatInput = string.Empty;
-        await _chatSendAction(prompt).ConfigureAwait(true);
+        await _chatSendAction(prompt, isSuggestedPrompt).ConfigureAwait(true);
     }
 
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? member = null)

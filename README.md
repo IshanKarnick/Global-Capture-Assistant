@@ -25,6 +25,11 @@ Suggested prompts and the chat-more loop after the first analysis.
 
 ![Follow-up suggestions and chat controls in the sidebar](docs/screenshots/follow-up-suggestions.png)
 
+### Generate notes
+Rendered note-card preview after using `Generate Notes` on the current capture.
+
+![Generated notes preview shown in the sidebar](docs/screenshots/generate%20notes.png)
+
 ## Why I Built This
 
 Most screenshot-to-LLM workflows are not really slow because of the screenshot itself. The real drag is the context switching that starts right after it: capture something, paste it somewhere else, wait, compare, switch back, then do it again. I wanted a setup where the capture, the answer, and the next useful prompts all lived in one persistent workspace. This app is built around staying in flow while working, not around generic image upload.

@@ -32,6 +32,7 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
     private string _resultText = "Capture a region to analyze.";
     private string _contextText = "No capture context yet.";
     private BitmapSource? _capturePreview;
+    private BitmapSource? _generatedNotesPreview;
     private string _errorText = string.Empty;
     private bool _canRetry;
     private Func<Task>? _retryAction;
@@ -42,6 +43,7 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
     private bool _suppressSettingsChanged;
     private string _chatInput = string.Empty;
     private Func<string, bool, Task>? _chatSendAction;
+    private Func<Task>? _generateNotesAction;
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler? SettingsChanged;
@@ -50,6 +52,7 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
     {
         RetryCommand = new AsyncRelayCommand(RetryAsync, () => CanRetry);
         SendChatCommand = new AsyncRelayCommand(SendChatFromInputAsync, () => CanSendChat);
+        GenerateNotesCommand = new AsyncRelayCommand(GenerateNotesAsync, () => CanGenerateNotes);
     }
 
     public ObservableCollection<ChatTurn> ChatTurns { get; } = [];
@@ -65,7 +68,9 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
             if (SetField(ref _state, value))
             {
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanSendChat)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanGenerateNotes)));
                 (SendChatCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+                (GenerateNotesCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
             }
         }
     }
@@ -97,12 +102,30 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
             {
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasCapturePreview)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasNoCapturePreview)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanGenerateNotes)));
+                (GenerateNotesCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
             }
         }
     }
 
     public bool HasCapturePreview => CapturePreview is not null;
     public bool HasNoCapturePreview => CapturePreview is null;
+
+    public BitmapSource? GeneratedNotesPreview
+    {
+        get => _generatedNotesPreview;
+        private set
+        {
+            if (SetField(ref _generatedNotesPreview, value))
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasGeneratedNotesPreview)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasNoGeneratedNotesPreview)));
+            }
+        }
+    }
+
+    public bool HasGeneratedNotesPreview => GeneratedNotesPreview is not null;
+    public bool HasNoGeneratedNotesPreview => GeneratedNotesPreview is null;
 
     public string ErrorText
     {
@@ -188,8 +211,16 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         && _chatSendAction is not null
         && State is not AnalysisState.Uploading;
 
+    public bool CanGenerateNotes =>
+        HasCapturePreview
+        && _generateNotesAction is not null
+        && State is not AnalysisState.Capturing
+        && State is not AnalysisState.Uploading
+        && State is not AnalysisState.Rendering;
+
     public ICommand RetryCommand { get; }
     public ICommand SendChatCommand { get; }
+    public ICommand GenerateNotesCommand { get; }
 
     public void SetRetryAction(Func<Task>? retryAction)
     {
@@ -202,6 +233,13 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         _chatSendAction = sendAction;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanSendChat)));
         (SendChatCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    public void SetGenerateNotesAction(Func<Task>? generateNotesAction)
+    {
+        _generateNotesAction = generateNotesAction;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanGenerateNotes)));
+        (GenerateNotesCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
     }
 
     public void ApplySettings(AppSettings settings)
@@ -272,6 +310,24 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         CapturePreview = bitmap;
     }
 
+    public void SetGeneratedNotesPreview(byte[]? pngBytes)
+    {
+        if (pngBytes is null || pngBytes.Length == 0)
+        {
+            GeneratedNotesPreview = null;
+            return;
+        }
+
+        using var stream = new MemoryStream(pngBytes);
+        var bitmap = new BitmapImage();
+        bitmap.BeginInit();
+        bitmap.CacheOption = BitmapCacheOption.OnLoad;
+        bitmap.StreamSource = stream;
+        bitmap.EndInit();
+        bitmap.Freeze();
+        GeneratedNotesPreview = bitmap;
+    }
+
     public async Task SendSuggestedPromptAsync(string prompt)
     {
         if (string.IsNullOrWhiteSpace(prompt) || _chatSendAction is null)
@@ -296,6 +352,16 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
     private async Task SendChatFromInputAsync()
     {
         await SendChatAsync(isSuggestedPrompt: false).ConfigureAwait(true);
+    }
+
+    private async Task GenerateNotesAsync()
+    {
+        if (_generateNotesAction is null)
+        {
+            return;
+        }
+
+        await _generateNotesAction().ConfigureAwait(true);
     }
 
     private async Task SendChatAsync(bool isSuggestedPrompt)

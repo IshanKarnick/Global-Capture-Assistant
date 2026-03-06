@@ -1,4 +1,6 @@
 using System.Windows;
+using System.Windows.Media.Imaging;
+using System.IO;
 using GlobalCaptureAssistant.Analysis;
 using GlobalCaptureAssistant.Capture;
 using GlobalCaptureAssistant.Config;
@@ -20,6 +22,7 @@ public sealed class AppHost : IDisposable
     private readonly TrayIconService _trayIconService = new();
     private readonly GlobalHotkeyService _hotkeyService = new();
     private readonly SidebarViewModel _sidebarViewModel = new();
+    private readonly NoteCardRenderService _noteCardRenderService = new();
 
     private AppSettings _settings;
     private GeminiClient _geminiClient;
@@ -34,6 +37,7 @@ public sealed class AppHost : IDisposable
         _sidebarViewModel.ApplySettings(_settings);
         _sidebarViewModel.SettingsChanged += OnSidebarSettingsChanged;
         _sidebarViewModel.SetChatSendAction(ChatMoreAsync);
+        _sidebarViewModel.SetGenerateNotesAction(GenerateNotesCardAsync);
     }
 
     public void Start()
@@ -107,6 +111,7 @@ public sealed class AppHost : IDisposable
 
                 var windowContext = _activeWindowService.TryGetContext();
                 _sidebarViewModel.SetCapturePreview(capture.PngBytes);
+                _sidebarViewModel.SetGeneratedNotesPreview(null);
                 _sidebarViewModel.ContextText = windowContext is null
                     ? "No active-window context available."
                     : $"{windowContext.ProcessName} / {windowContext.Title}";
@@ -212,6 +217,53 @@ public sealed class AppHost : IDisposable
         }
     }
 
+    private async Task GenerateNotesCardAsync()
+    {
+        if (_lastRequest is null || _lastRequest.ImagePng is null || _lastRequest.ImagePng.Length == 0)
+        {
+            _sidebarViewModel.StatusText = "Capture an image first.";
+            return;
+        }
+
+        try
+        {
+            ShowSidebar(activate: true);
+            _sidebarViewModel.SetRetryAction(GenerateNotesCardAsync);
+            if (!EnsureApiKey())
+            {
+                _sidebarViewModel.StatusText = "Gemini API key is required.";
+                return;
+            }
+
+            _sidebarViewModel.State = AnalysisState.Uploading;
+            _sidebarViewModel.StatusText = "Generating notes card...";
+            _sidebarViewModel.ErrorText = string.Empty;
+
+            var noteCardHtml = await _geminiClient.GenerateNotesCardHtmlAsync(_lastRequest, CancellationToken.None).ConfigureAwait(true);
+
+            _sidebarViewModel.State = AnalysisState.Rendering;
+            _sidebarViewModel.StatusText = "Rendering notes card...";
+
+            var pngBytes = await _noteCardRenderService.RenderHtmlToPngAsync(noteCardHtml.Html, CancellationToken.None).ConfigureAwait(true);
+            CopyPngToClipboard(pngBytes);
+            _sidebarViewModel.SetGeneratedNotesPreview(pngBytes);
+
+            _sidebarViewModel.ErrorText = string.Empty;
+            _sidebarViewModel.CanRetry = false;
+            _sidebarViewModel.StatusText = $"Notes card copied in {noteCardHtml.Latency.TotalSeconds:F1}s";
+            _sidebarViewModel.State = AnalysisState.Idle;
+            _sidebarWindow?.ScrollToTop();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Generate notes card workflow failed.", ex);
+            _sidebarViewModel.State = AnalysisState.Error;
+            _sidebarViewModel.StatusText = "Notes card failed";
+            _sidebarViewModel.ErrorText = ex.Message;
+            _sidebarViewModel.CanRetry = _lastRequest is not null;
+        }
+    }
+
     private void ShowSidebar(bool activate)
     {
         if (_sidebarWindow is null)
@@ -257,8 +309,10 @@ public sealed class AppHost : IDisposable
     {
         _sidebarViewModel.SettingsChanged -= OnSidebarSettingsChanged;
         _sidebarViewModel.SetChatSendAction(null);
+        _sidebarViewModel.SetGenerateNotesAction(null);
         _hotkeyService.Dispose();
         _trayIconService.Dispose();
+        _noteCardRenderService.Dispose();
         _floatingButton?.Close();
         if (_sidebarWindow is not null)
         {
@@ -277,5 +331,13 @@ public sealed class AppHost : IDisposable
         _settingsStore.Save(_settings);
         _autoStartService.SetEnabled(_settings.AutoStartEnabled);
         _geminiClient = new GeminiClient(_settingsStore, _settings, _logger);
+    }
+
+    private static void CopyPngToClipboard(byte[] pngBytes)
+    {
+        using var stream = new MemoryStream(pngBytes);
+        var decoder = new PngBitmapDecoder(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+        var frame = decoder.Frames[0];
+        System.Windows.Clipboard.SetImage(frame);
     }
 }

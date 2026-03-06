@@ -166,6 +166,67 @@ public sealed class GeminiClient
         return BuildFallbackSuggestions(answer);
     }
 
+    public async Task<NoteCardHtmlResult> GenerateNotesCardHtmlAsync(AnalyzeRequest request, CancellationToken cancellationToken)
+    {
+        var apiKey = _settingsStore.GetApiKey(_settings);
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new InvalidOperationException("Gemini API key is not configured.");
+        }
+
+        var modelId = string.IsNullOrWhiteSpace(_settings.ModelId) ? "gemini-3.1-pro-preview" : _settings.ModelId;
+        var payload = BuildNotesCardPayload(request);
+
+        Exception? lastException = null;
+        var maxRetries = Math.Max(0, _settings.MaxRetries);
+
+        for (var attempt = 0; attempt <= maxRetries; attempt++)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            try
+            {
+                using var message = BuildMessage(modelId, apiKey, payload);
+                using var response = await _httpClient.SendAsync(message, cancellationToken).ConfigureAwait(false);
+                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                stopwatch.Stop();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    if (attempt < maxRetries && IsTransient(response.StatusCode))
+                    {
+                        await Task.Delay(RetryDelays[Math.Min(attempt, RetryDelays.Length - 1)], cancellationToken).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    throw new HttpRequestException($"Gemini note card request failed with {(int)response.StatusCode}: {TryParseError(body) ?? response.ReasonPhrase}");
+                }
+
+                var text = ParseText(body);
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    throw new InvalidOperationException("Gemini returned empty note card HTML.");
+                }
+
+                var html = NormalizeNoteCardHtml(StripCodeFence(text.Trim()));
+                ValidateNoteCardHtml(html);
+                return new NoteCardHtmlResult(html, stopwatch.Elapsed);
+            }
+            catch (Exception ex) when (attempt < maxRetries && (ex is HttpRequestException or TaskCanceledException))
+            {
+                lastException = ex;
+                await Task.Delay(RetryDelays[Math.Min(attempt, RetryDelays.Length - 1)], cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                lastException = ex;
+                break;
+            }
+        }
+
+        _logger.Error("Gemini note card request failed.", lastException);
+        throw lastException ?? new InvalidOperationException("Gemini note card request failed.");
+    }
+
     private static HttpRequestMessage BuildMessage(string modelId, string apiKey, object payload)
     {
         var message = new HttpRequestMessage(HttpMethod.Post, $"v1beta/models/{modelId}:generateContent")
@@ -228,6 +289,53 @@ public sealed class GeminiClient
                                 $"Assistant answer:\n{answer}"
                         }
                     }
+                }
+            }
+        };
+    }
+
+    private static object BuildNotesCardPayload(AnalyzeRequest request)
+    {
+        var prompt = new StringBuilder();
+        prompt.AppendLine("Generate a single visually strong note card as HTML and CSS for this screenshot.");
+        prompt.AppendLine("Return only raw HTML. No markdown fences. No explanations.");
+        prompt.AppendLine("Requirements:");
+        prompt.AppendLine("- Include one root element with id=\"note-card-root\".");
+        prompt.AppendLine("- Include all CSS in a single <style> block.");
+        prompt.AppendLine("- No JavaScript, no external URLs, no external fonts, no external assets.");
+        prompt.AppendLine("- Design for a card about 840px wide.");
+        prompt.AppendLine("- Use concise note content: title, short summary, 3 to 6 bullets, and optional next steps.");
+        prompt.AppendLine("- Use good typography, spacing, and contrast.");
+        prompt.AppendLine("- Keep the body margin at 0.");
+
+        if (request.WindowContext is not null)
+        {
+            prompt.AppendLine();
+            prompt.AppendLine("Window context:");
+            prompt.AppendLine($"- Process: {request.WindowContext.ProcessName}");
+            prompt.AppendLine($"- Title: {request.WindowContext.Title}");
+        }
+
+        var parts = new List<object>
+        {
+            new { text = prompt.ToString().Trim() },
+            new
+            {
+                inlineData = new
+                {
+                    mimeType = "image/png",
+                    data = Convert.ToBase64String(request.ImagePng)
+                }
+            }
+        };
+
+        return new
+        {
+            contents = new[]
+            {
+                new
+                {
+                    parts = parts.ToArray()
                 }
             }
         };
@@ -313,6 +421,44 @@ public sealed class GeminiClient
         }
 
         return body.Trim();
+    }
+
+    private static string NormalizeNoteCardHtml(string html)
+    {
+        if (html.Contains("<html", StringComparison.OrdinalIgnoreCase))
+        {
+            return html;
+        }
+
+        return
+            "<!DOCTYPE html><html><head><meta charset=\"utf-8\" /></head><body style=\"margin:0;padding:0;\">" +
+            html +
+            "</body></html>";
+    }
+
+    private static void ValidateNoteCardHtml(string html)
+    {
+        if (!html.Contains("id=\"note-card-root\"", StringComparison.OrdinalIgnoreCase)
+            && !html.Contains("id='note-card-root'", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Gemini note card HTML is missing the required note-card-root element.");
+        }
+
+        var forbiddenFragments = new[]
+        {
+            "<script",
+            "<link",
+            "@import",
+            "http://",
+            "https://",
+            "src=",
+            "url("
+        };
+
+        if (forbiddenFragments.Any(fragment => html.Contains(fragment, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("Gemini note card HTML contained blocked script or external resource markup.");
+        }
     }
 
     private static IReadOnlyList<string> BuildFallbackSuggestions(string answer)

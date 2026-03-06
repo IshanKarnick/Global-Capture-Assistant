@@ -8,6 +8,7 @@ I built this because I got tired of how clumsy the normal screenshot-to-LLM work
 - WPF / .NET 8
 - Global hotkey: `Ctrl + Shift + Q`
 - Gemini API key required
+- WebView2 used for note-card rendering
 - Floating button + tray + sidebar workflow
 
 ![Global Capture Assistant sidebar shown beside an active desktop workflow](docs/screenshots/sidebar.png)
@@ -38,6 +39,9 @@ Most screenshot-to-LLM workflows are not really slow because of the screenshot i
 - Result sidebar with Markdown rendering
 - Suggested follow-up prompts after each analysis
 - Manual chat input for continuing analysis on the same capture
+- `Generate Notes` action that turns the current capture into a styled note card
+- HTML/CSS note card rendered in-app and copied to the clipboard as a PNG
+- In-app preview of the generated notes card image
 - Retry support after failures
 - Model selection and thinking level settings
 - Optional auto-start and focus-sidebar behavior
@@ -50,6 +54,7 @@ Most screenshot-to-LLM workflows are not really slow because of the screenshot i
 2. Select the part of the screen you want to analyze.
 3. The capture is sent to your configured Gemini model for image analysis.
 4. The sidebar shows the response, generates suggested follow-up prompts with `gemma-3-27b-it`, and lets you continue the conversation without recapturing.
+5. If you want something reusable, click `Generate Notes` to have Gemini produce a visual note card that is rendered in-app and copied to your clipboard as a PNG.
 
 ## Quick Start
 
@@ -57,6 +62,7 @@ Prerequisites:
 
 - Windows 10/11
 - Gemini API key
+- Microsoft Edge WebView2 Runtime
 - `.NET 8 SDK` if you are building from source
 
 Download a release:
@@ -84,7 +90,8 @@ dotnet run --project src\GlobalCaptureAssistant\GlobalCaptureAssistant.csproj -c
 2. Drag over the part of the screen you want to analyze.
 3. Read the response in the sidebar while keeping your original work visible.
 4. Click a suggested prompt or type your own follow-up question.
-5. Continue the same capture conversation without taking a new screenshot unless the context changes.
+5. Click `Generate Notes` if you want the current capture turned into a styled note card image.
+6. Paste the generated PNG directly into OneNote or another app, or keep using the same capture conversation without taking a new screenshot unless the context changes.
 
 ## Build From Source
 
@@ -137,6 +144,7 @@ Expected output:
 
 - If the global hotkey is unavailable, use the floating button or tray menu.
 - If your Gemini API key is missing, the app cannot analyze captures.
+- `Generate Notes` depends on WebView2 being available on the machine.
 - Internet access is required for model calls.
 - This app is currently Windows-only.
 

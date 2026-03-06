@@ -106,6 +106,7 @@ public sealed class AppHost : IDisposable
                 }
 
                 var windowContext = _activeWindowService.TryGetContext();
+                _sidebarViewModel.SetCapturePreview(capture.PngBytes);
                 _sidebarViewModel.ContextText = windowContext is null
                     ? "No active-window context available."
                     : $"{windowContext.ProcessName} / {windowContext.Title}";

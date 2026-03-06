@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using System.Windows.Media.Imaging;
 using GlobalCaptureAssistant.Config;
 using GlobalCaptureAssistant.Models;
 using GlobalCaptureAssistant.Ui.Commands;
@@ -29,6 +31,7 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
     private string _statusText = "Ready";
     private string _resultText = "Capture a region to analyze.";
     private string _contextText = "No capture context yet.";
+    private BitmapSource? _capturePreview;
     private string _errorText = string.Empty;
     private bool _canRetry;
     private Func<Task>? _retryAction;
@@ -84,6 +87,22 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         get => _contextText;
         set => SetField(ref _contextText, value);
     }
+
+    public BitmapSource? CapturePreview
+    {
+        get => _capturePreview;
+        private set
+        {
+            if (SetField(ref _capturePreview, value))
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasCapturePreview)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasNoCapturePreview)));
+            }
+        }
+    }
+
+    public bool HasCapturePreview => CapturePreview is not null;
+    public bool HasNoCapturePreview => CapturePreview is null;
 
     public string ErrorText
     {
@@ -233,6 +252,24 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         ChatTurns.Clear();
         SuggestedPrompts.Clear();
         ChatInput = string.Empty;
+    }
+
+    public void SetCapturePreview(byte[]? pngBytes)
+    {
+        if (pngBytes is null || pngBytes.Length == 0)
+        {
+            CapturePreview = null;
+            return;
+        }
+
+        using var stream = new MemoryStream(pngBytes);
+        var bitmap = new BitmapImage();
+        bitmap.BeginInit();
+        bitmap.CacheOption = BitmapCacheOption.OnLoad;
+        bitmap.StreamSource = stream;
+        bitmap.EndInit();
+        bitmap.Freeze();
+        CapturePreview = bitmap;
     }
 
     public async Task SendSuggestedPromptAsync(string prompt)

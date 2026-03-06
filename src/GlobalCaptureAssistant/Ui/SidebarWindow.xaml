@@ -269,15 +269,37 @@
                           Padding="14,10,14,14">
                 <StackPanel>
 
-                    <!-- Context card -->
+                    <!-- Capture preview card -->
                     <Border Style="{StaticResource Card}">
                         <StackPanel>
-                            <TextBlock Text="CONTEXT" Style="{StaticResource SectionLabel}" />
+                            <TextBlock Text="CAPTURE" Style="{StaticResource SectionLabel}" />
+
+                            <Border Height="150"
+                                    CornerRadius="8"
+                                    ClipToBounds="True"
+                                    Background="#18FFFFFF"
+                                    BorderBrush="#33BBBBBB"
+                                    BorderThickness="1">
+                                <Grid>
+                                    <Image Source="{Binding CapturePreview}"
+                                           Stretch="UniformToFill"
+                                           Visibility="{Binding HasCapturePreview, Converter={StaticResource BoolToVisibilityConverter}}" />
+
+                                    <TextBlock Text="Capture preview will appear here."
+                                               Visibility="{Binding HasNoCapturePreview, Converter={StaticResource BoolToVisibilityConverter}}"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               FontSize="12"
+                                               Foreground="#88000000" />
+                                </Grid>
+                            </Border>
+
                             <TextBlock Text="{Binding ContextText}"
-                                       FontSize="13"
-                                       Foreground="#CC1A1A1A"
+                                       Margin="0,8,0,0"
+                                       FontSize="12"
+                                       Foreground="#AA1A1A1A"
                                        TextWrapping="Wrap"
-                                       LineHeight="20" />
+                                       LineHeight="18" />
                         </StackPanel>
                     </Border>
 

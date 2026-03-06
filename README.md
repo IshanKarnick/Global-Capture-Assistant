@@ -67,7 +67,7 @@ Prerequisites:
 
 Download a release:
 
-- If you do not want to build from source, download `GlobalCaptureAssistant-1.0.0-win-x64.zip` from the [GitHub releases page](https://github.com/IshanKarnick/Global-Capture-Assistant/releases/).
+- If you do not want to build from source, download `GlobalCaptureAssistant-1.0.1-win-x64.zip` from the [GitHub releases page](https://github.com/IshanKarnick/Global-Capture-Assistant/releases/).
 - Extract the ZIP and run `GlobalCaptureAssistant.exe`.
 
 Run from source:
@@ -113,8 +113,8 @@ Use the packaging script to produce a local ZIP release from the current source 
 Optional examples:
 
 ```powershell
-.\scripts\package-release.ps1 -Version 1.0.0 -Runtime win-x64
-.\scripts\package-release.ps1 -Version 1.0.0 -FrameworkDependent
+.\scripts\package-release.ps1 -Version 1.0.1 -Runtime win-x64
+.\scripts\package-release.ps1 -Version 1.0.1 -FrameworkDependent
 ```
 
 Packaging notes:

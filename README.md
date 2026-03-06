@@ -1,6 +1,6 @@
 # Global Capture Assistant
 
-Standalone Windows capture assistant (no OneNote add-in).
+Standalone Windows capture assistant.
 
 ## What it does
 - Always-on-top floating capture button (draggable)
@@ -46,8 +46,3 @@ Release output:
   `%AppData%\GlobalCaptureAssistant\settings.json`
 - Logs are written to:
   `%LocalAppData%\GlobalCaptureAssistant\logs\`
-
-## Repository solution build
-```powershell
-dotnet build OneNoteAnalyzeAddIn.slnx -c Debug
-```

@@ -26,6 +26,7 @@ public sealed class AppHost : IDisposable
 
     private AppSettings _settings;
     private GeminiClient _geminiClient;
+    private GroqClient _groqClient;
     private FloatingButtonWindow? _floatingButton;
     private SidebarWindow? _sidebarWindow;
     private AnalyzeRequest? _lastRequest;
@@ -34,10 +35,12 @@ public sealed class AppHost : IDisposable
     {
         _settings = _settingsStore.Load();
         _geminiClient = new GeminiClient(_settingsStore, _settings, _logger);
+        _groqClient = new GroqClient(_settingsStore, _settings, _logger);
         _sidebarViewModel.ApplySettings(_settings);
         _sidebarViewModel.SettingsChanged += OnSidebarSettingsChanged;
         _sidebarViewModel.SetChatSendAction(ChatMoreAsync);
         _sidebarViewModel.SetGenerateNotesAction(GenerateNotesCardAsync);
+        _sidebarViewModel.SetAnnotateScreenAction(AnnotateScreenAsync);
     }
 
     public void Start()
@@ -69,9 +72,9 @@ public sealed class AppHost : IDisposable
         {
             ShowSidebar(activate: false);
             _sidebarViewModel.SetRetryAction(() => CaptureAndAnalyzeAsync(useLastCapture: true));
-            if (!EnsureApiKey())
+            if (!EnsureTextProviderApiKey())
             {
-                _sidebarViewModel.StatusText = "Gemini API key is required.";
+                _sidebarViewModel.StatusText = $"{GetTextProviderName()} API key is required.";
                 return;
             }
 
@@ -84,9 +87,14 @@ public sealed class AppHost : IDisposable
                 _sidebarViewModel.CanRetry = false;
 
                 var floatingWasVisible = _floatingButton?.IsVisible == true;
+                var sidebarWasVisible = _sidebarWindow?.IsVisible == true;
                 if (floatingWasVisible)
                 {
                     _floatingButton?.Hide();
+                }
+                if (sidebarWasVisible)
+                {
+                    _sidebarWindow?.Hide();
                 }
 
                 CaptureResult capture;
@@ -99,6 +107,10 @@ public sealed class AppHost : IDisposable
                     if (floatingWasVisible)
                     {
                         _floatingButton?.Show();
+                    }
+                    if (sidebarWasVisible)
+                    {
+                        ShowSidebar(activate: false);
                     }
                 }
 
@@ -127,12 +139,12 @@ public sealed class AppHost : IDisposable
             }
 
             _sidebarViewModel.State = AnalysisState.Uploading;
-            _sidebarViewModel.StatusText = "Analyzing with Gemini...";
-            var response = await _geminiClient.AnalyzeImageAsync(request, CancellationToken.None).ConfigureAwait(true);
+            _sidebarViewModel.StatusText = $"Analyzing with {GetTextProviderName()}...";
+            var response = await AnalyzeWithSelectedTextProviderAsync(request).ConfigureAwait(true);
 
             _sidebarViewModel.State = AnalysisState.Rendering;
             _sidebarViewModel.StatusText = "Generating follow-up prompts...";
-            var suggestions = await _geminiClient.GenerateSuggestedPromptsAsync(response.Text, CancellationToken.None).ConfigureAwait(true);
+            var suggestions = await GenerateSuggestedPromptsAsync(response.Text).ConfigureAwait(true);
 
             _sidebarViewModel.ResultText = response.Text;
             _sidebarViewModel.SetSuggestedPrompts(suggestions);
@@ -173,9 +185,9 @@ public sealed class AppHost : IDisposable
         try
         {
             ShowSidebar(activate: true);
-            if (!EnsureApiKey())
+            if (!EnsureTextProviderApiKey())
             {
-                _sidebarViewModel.StatusText = "Gemini API key is required.";
+                _sidebarViewModel.StatusText = $"{GetTextProviderName()} API key is required.";
                 return;
             }
 
@@ -186,14 +198,14 @@ public sealed class AppHost : IDisposable
             };
 
             _sidebarViewModel.State = AnalysisState.Uploading;
-            _sidebarViewModel.StatusText = "Analyzing follow-up...";
+            _sidebarViewModel.StatusText = $"Analyzing follow-up with {GetTextProviderName()}...";
             _sidebarViewModel.ErrorText = string.Empty;
 
-            var response = await _geminiClient.AnalyzeImageAsync(followUpRequest, CancellationToken.None).ConfigureAwait(true);
+            var response = await AnalyzeWithSelectedTextProviderAsync(followUpRequest).ConfigureAwait(true);
 
             _sidebarViewModel.State = AnalysisState.Rendering;
             _sidebarViewModel.StatusText = "Generating follow-up prompts...";
-            var suggestions = await _geminiClient.GenerateSuggestedPromptsAsync(response.Text, CancellationToken.None).ConfigureAwait(true);
+            var suggestions = await GenerateSuggestedPromptsAsync(response.Text).ConfigureAwait(true);
 
             _lastRequest = followUpRequest;
             _sidebarViewModel.ResultText = response.Text;
@@ -264,6 +276,55 @@ public sealed class AppHost : IDisposable
         }
     }
 
+    private async Task AnnotateScreenAsync()
+    {
+        if (_lastRequest is null || _lastRequest.ImagePng.Length == 0)
+        {
+            _sidebarViewModel.StatusText = "Capture an image first.";
+            return;
+        }
+
+        try
+        {
+            ShowSidebar(activate: true);
+            _sidebarViewModel.SetRetryAction(AnnotateScreenAsync);
+            if (!EnsureAnnotationProviderApiKey())
+            {
+                _sidebarViewModel.StatusText = $"{GetAnnotationProviderName()} API key is required.";
+                return;
+            }
+
+            _sidebarViewModel.State = AnalysisState.Uploading;
+            _sidebarViewModel.StatusText = $"Annotating with {GetAnnotationProviderName()}...";
+            _sidebarViewModel.ErrorText = string.Empty;
+
+            var document = await GenerateAnnotationsAsync(_lastRequest).ConfigureAwait(true);
+
+            _sidebarViewModel.State = AnalysisState.Rendering;
+            _sidebarViewModel.StatusText = "Opening annotation overlay...";
+
+            var screenshot = CreateBitmapSource(_lastRequest.ImagePng);
+            var overlayWindow = new AnnotatedScreenWindow(screenshot, document)
+            {
+                Owner = _sidebarWindow
+            };
+            overlayWindow.Show();
+
+            _sidebarViewModel.ErrorText = string.Empty;
+            _sidebarViewModel.CanRetry = false;
+            _sidebarViewModel.StatusText = "Annotation overlay ready";
+            _sidebarViewModel.State = AnalysisState.Idle;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Screen annotation workflow failed.", ex);
+            _sidebarViewModel.State = AnalysisState.Error;
+            _sidebarViewModel.StatusText = "Annotation failed";
+            _sidebarViewModel.ErrorText = ex.Message;
+            _sidebarViewModel.CanRetry = _lastRequest is not null;
+        }
+    }
+
     private void ShowSidebar(bool activate)
     {
         if (_sidebarWindow is null)
@@ -284,14 +345,14 @@ public sealed class AppHost : IDisposable
         }
     }
 
-    private bool EnsureApiKey()
+    private bool EnsureApiKey(string subtitle = "Required to use Gemini-powered features")
     {
         if (!string.IsNullOrWhiteSpace(_settingsStore.GetApiKey(_settings)))
         {
             return true;
         }
 
-        var prompt = new ApiKeyPromptWindow();
+        var prompt = new ApiKeyPromptWindow("Gemini API Key", subtitle);
         var response = prompt.ShowDialog();
         if (response != true || string.IsNullOrWhiteSpace(prompt.ApiKey))
         {
@@ -302,6 +363,29 @@ public sealed class AppHost : IDisposable
         _settingsStore.Save(_settings);
         _settings = _settingsStore.Load();
         _geminiClient = new GeminiClient(_settingsStore, _settings, _logger);
+        _groqClient = new GroqClient(_settingsStore, _settings, _logger);
+        return true;
+    }
+
+    private bool EnsureGroqApiKey(string subtitle = "Required to use Groq-powered features")
+    {
+        if (!string.IsNullOrWhiteSpace(_settingsStore.GetGroqApiKey(_settings)))
+        {
+            return true;
+        }
+
+        var prompt = new ApiKeyPromptWindow("Groq API Key", subtitle);
+        var response = prompt.ShowDialog();
+        if (response != true || string.IsNullOrWhiteSpace(prompt.ApiKey))
+        {
+            return false;
+        }
+
+        _settingsStore.SetGroqApiKey(_settings, prompt.ApiKey);
+        _settingsStore.Save(_settings);
+        _settings = _settingsStore.Load();
+        _geminiClient = new GeminiClient(_settingsStore, _settings, _logger);
+        _groqClient = new GroqClient(_settingsStore, _settings, _logger);
         return true;
     }
 
@@ -310,6 +394,7 @@ public sealed class AppHost : IDisposable
         _sidebarViewModel.SettingsChanged -= OnSidebarSettingsChanged;
         _sidebarViewModel.SetChatSendAction(null);
         _sidebarViewModel.SetGenerateNotesAction(null);
+        _sidebarViewModel.SetAnnotateScreenAction(null);
         _hotkeyService.Dispose();
         _trayIconService.Dispose();
         _noteCardRenderService.Dispose();
@@ -323,7 +408,10 @@ public sealed class AppHost : IDisposable
 
     private void OnSidebarSettingsChanged(object? sender, EventArgs e)
     {
+        _settings.TextProvider = _sidebarViewModel.SelectedTextProvider;
+        _settings.AnnotationProvider = _sidebarViewModel.SelectedAnnotationProvider;
         _settings.ModelId = _sidebarViewModel.SelectedModelId;
+        _settings.GroqModelId = _sidebarViewModel.SelectedGroqModelId;
         _settings.ThinkingLevel = _sidebarViewModel.SelectedThinkingLevel;
         _settings.AutoStartEnabled = _sidebarViewModel.AutoStartEnabled;
         _settings.FocusSidebarAfterCapture = _sidebarViewModel.FocusSidebarAfterCapture;
@@ -331,6 +419,66 @@ public sealed class AppHost : IDisposable
         _settingsStore.Save(_settings);
         _autoStartService.SetEnabled(_settings.AutoStartEnabled);
         _geminiClient = new GeminiClient(_settingsStore, _settings, _logger);
+        _groqClient = new GroqClient(_settingsStore, _settings, _logger);
+    }
+
+    private string GetTextProviderName() => NormalizeProvider(_settings.TextProvider, "Gemini");
+
+    private string GetAnnotationProviderName() => NormalizeProvider(_settings.AnnotationProvider, "Groq");
+
+    private bool EnsureTextProviderApiKey()
+    {
+        return IsGroqProvider(_settings.TextProvider)
+            ? EnsureGroqApiKey("Required to use Groq for screenshot text analysis")
+            : EnsureApiKey("Required to use Gemini for screenshot text analysis");
+    }
+
+    private bool EnsureAnnotationProviderApiKey()
+    {
+        return IsGroqProvider(_settings.AnnotationProvider)
+            ? EnsureGroqApiKey("Required to generate Groq-based on-screen annotations")
+            : EnsureApiKey("Required to generate Gemini-based on-screen annotations");
+    }
+
+    private Task<AnalyzeResponse> AnalyzeWithSelectedTextProviderAsync(AnalyzeRequest request)
+    {
+        return IsGroqProvider(_settings.TextProvider)
+            ? _groqClient.AnalyzeImageAsync(request, CancellationToken.None)
+            : _geminiClient.AnalyzeImageAsync(request, CancellationToken.None);
+    }
+
+    private Task<IReadOnlyList<string>> GenerateSuggestedPromptsAsync(string answer)
+    {
+        return IsGroqProvider(_settings.TextProvider)
+            ? _groqClient.GenerateSuggestedPromptsAsync(answer, CancellationToken.None)
+            : _geminiClient.GenerateSuggestedPromptsAsync(answer, CancellationToken.None);
+    }
+
+    private Task<ScreenAnnotationDocument> GenerateAnnotationsAsync(AnalyzeRequest request)
+    {
+        return IsGroqProvider(_settings.AnnotationProvider)
+            ? _groqClient.GenerateAnnotationsAsync(request, CancellationToken.None)
+            : _geminiClient.GenerateAnnotationsAsync(request, CancellationToken.None);
+    }
+
+    private static bool IsGroqProvider(string? provider)
+    {
+        return string.Equals(provider?.Trim(), "Groq", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeProvider(string? provider, string fallback)
+    {
+        if (string.Equals(provider?.Trim(), "Groq", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Groq";
+        }
+
+        if (string.Equals(provider?.Trim(), "Gemini", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Gemini";
+        }
+
+        return fallback;
     }
 
     private static void CopyPngToClipboard(byte[] pngBytes)
@@ -339,5 +487,14 @@ public sealed class AppHost : IDisposable
         var decoder = new PngBitmapDecoder(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
         var frame = decoder.Frames[0];
         System.Windows.Clipboard.SetImage(frame);
+    }
+
+    private static BitmapSource CreateBitmapSource(byte[] pngBytes)
+    {
+        using var stream = new MemoryStream(pngBytes);
+        var decoder = new PngBitmapDecoder(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+        var frame = decoder.Frames[0];
+        frame.Freeze();
+        return frame;
     }
 }

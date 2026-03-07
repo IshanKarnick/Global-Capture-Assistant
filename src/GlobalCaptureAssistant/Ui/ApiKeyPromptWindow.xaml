@@ -26,11 +26,13 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel>
-                    <TextBlock Text="Gemini API Key"
+                    <TextBlock x:Name="TitleText"
+                               Text="Gemini API Key"
                                Foreground="#DD1A1A1A"
                                FontSize="15"
                                FontWeight="SemiBold" />
-                    <TextBlock Text="Required to use AI capture features"
+                    <TextBlock x:Name="SubtitleText"
+                               Text="Required to use AI capture features"
                                Foreground="#88000000"
                                FontSize="12"
                                Margin="0,2,0,0" />

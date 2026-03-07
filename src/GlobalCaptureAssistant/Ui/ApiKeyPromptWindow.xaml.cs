@@ -6,9 +6,11 @@ namespace GlobalCaptureAssistant.Ui;
 
 public partial class ApiKeyPromptWindow : Window
 {
-    public ApiKeyPromptWindow()
+    public ApiKeyPromptWindow(string title = "Gemini API Key", string subtitle = "Required to use AI capture features")
     {
         InitializeComponent();
+        TitleText.Text = title;
+        SubtitleText.Text = subtitle;
         Loaded += (_, _) =>
         {
             DwmBlurHelper.EnableAcrylic(this, 0x99F2F0EE);

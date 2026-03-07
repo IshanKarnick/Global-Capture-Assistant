@@ -227,6 +227,63 @@ public sealed class GeminiClient
         throw lastException ?? new InvalidOperationException("Gemini note card request failed.");
     }
 
+    public async Task<ScreenAnnotationDocument> GenerateAnnotationsAsync(AnalyzeRequest request, CancellationToken cancellationToken)
+    {
+        var apiKey = _settingsStore.GetApiKey(_settings);
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new InvalidOperationException("Gemini API key is not configured.");
+        }
+
+        var modelId = string.IsNullOrWhiteSpace(_settings.ModelId) ? "gemini-3.1-pro-preview" : _settings.ModelId;
+        var payload = BuildAnnotationPayload(request);
+
+        Exception? lastException = null;
+        var maxRetries = Math.Max(0, _settings.MaxRetries);
+
+        for (var attempt = 0; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                using var message = BuildMessage(modelId, apiKey, payload);
+                using var response = await _httpClient.SendAsync(message, cancellationToken).ConfigureAwait(false);
+                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    if (attempt < maxRetries && IsTransient(response.StatusCode))
+                    {
+                        await Task.Delay(RetryDelays[Math.Min(attempt, RetryDelays.Length - 1)], cancellationToken).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    throw new HttpRequestException($"Gemini annotation request failed with {(int)response.StatusCode}: {TryParseError(body) ?? response.ReasonPhrase}");
+                }
+
+                var text = ParseText(body);
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    throw new InvalidOperationException("Gemini returned an empty annotation payload.");
+                }
+
+                return ScreenAnnotationParser.Parse(StripCodeFence(text.Trim()), "Gemini");
+            }
+            catch (Exception ex) when (attempt < maxRetries && (ex is HttpRequestException or TaskCanceledException))
+            {
+                lastException = ex;
+                await Task.Delay(RetryDelays[Math.Min(attempt, RetryDelays.Length - 1)], cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                lastException = ex;
+                break;
+            }
+        }
+
+        _logger.Error("Gemini annotation request failed.", lastException);
+        throw lastException ?? new InvalidOperationException("Gemini annotation request failed.");
+    }
+
     private static HttpRequestMessage BuildMessage(string modelId, string apiKey, object payload)
     {
         var message = new HttpRequestMessage(HttpMethod.Post, $"v1beta/models/{modelId}:generateContent")
@@ -337,6 +394,64 @@ public sealed class GeminiClient
                 {
                     parts = parts.ToArray()
                 }
+            }
+        };
+    }
+
+    private static object BuildAnnotationPayload(AnalyzeRequest request)
+    {
+        var prompt = new StringBuilder();
+        prompt.AppendLine("Annotate this screenshot for a local desktop overlay.");
+        prompt.AppendLine("Return JSON only with a top-level object {\"annotations\": [...]}.");
+        prompt.AppendLine("Use relative coordinates from 0.0 to 1.0.");
+        prompt.AppendLine("Use x and y as the on-image anchor the arrow should point to.");
+        prompt.AppendLine("Allowed types: highlight_box, arrow, label, equation, note_panel, solution_panel, explanation_panel.");
+        prompt.AppendLine("For highlight_box use x,y,width,height,text,color,emphasis.");
+        prompt.AppendLine("For arrow use x,y,endX,endY,text,color. Width and height can be 0.");
+        prompt.AppendLine("For label use x,y,width,height,title,text,color,emphasis.");
+        prompt.AppendLine("For equation use x,y,width,height,title,latex,text,color.");
+        prompt.AppendLine("For note_panel, solution_panel, and explanation_panel use x,y,width,height,title,text,color,emphasis.");
+        prompt.AppendLine("Use markdown in text for bullets, numbered steps, short notes, and worked solutions.");
+        prompt.AppendLine("Use inline or block LaTeX in text when math helps.");
+        prompt.AppendLine("If the screenshot contains an exercise, question, or problem, you may solve it and place the worked answer in a solution_panel.");
+        prompt.AppendLine("If the screenshot is dense or conceptual, add note_panel or explanation_panel content that teaches the user what matters.");
+        prompt.AppendLine("The UI will place content boxes on the left or right side outside the screenshot, so focus on accurate anchor points and concise side callouts.");
+        prompt.AppendLine("Prefer 1 to 3 larger, readable teaching panels over many tiny labels.");
+        prompt.AppendLine("Use the screenshot area mostly for arrows and optional highlight boxes, not large text blocks.");
+        prompt.AppendLine("Prefer richer teaching panels when the screenshot contains exercises, diagrams, or concepts that need explanation.");
+        prompt.AppendLine("Keep text concise and useful. No markdown fences. No prose outside JSON.");
+
+        if (request.WindowContext is not null)
+        {
+            prompt.AppendLine();
+            prompt.AppendLine("Window context:");
+            prompt.AppendLine($"- Process: {request.WindowContext.ProcessName}");
+            prompt.AppendLine($"- Title: {request.WindowContext.Title}");
+        }
+
+        return new
+        {
+            contents = new[]
+            {
+                new
+                {
+                    parts = new object[]
+                    {
+                        new { text = prompt.ToString().Trim() },
+                        new
+                        {
+                            inlineData = new
+                            {
+                                mimeType = "image/png",
+                                data = Convert.ToBase64String(request.ImagePng)
+                            }
+                        }
+                    }
+                }
+            },
+            generationConfig = new
+            {
+                responseMimeType = "application/json"
             }
         };
     }

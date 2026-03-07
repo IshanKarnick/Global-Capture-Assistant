@@ -12,6 +12,12 @@ namespace GlobalCaptureAssistant.Ui.ViewModels;
 
 public sealed class SidebarViewModel : INotifyPropertyChanged
 {
+    private static readonly IReadOnlyList<string> DefaultProviderOptions =
+    [
+        "Gemini",
+        "Groq"
+    ];
+
     private static readonly IReadOnlyList<string> DefaultModelOptions =
     [
         "gemini-3.1-pro-preview",
@@ -27,6 +33,11 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         "high"
     ];
 
+    private static readonly IReadOnlyList<string> DefaultGroqModelOptions =
+    [
+        "meta-llama/llama-4-scout-17b-16e-instruct"
+    ];
+
     private AnalysisState _state = AnalysisState.Idle;
     private string _statusText = "Ready";
     private string _resultText = "Capture a region to analyze.";
@@ -36,7 +47,10 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
     private string _errorText = string.Empty;
     private bool _canRetry;
     private Func<Task>? _retryAction;
+    private string _selectedTextProvider = "Gemini";
+    private string _selectedAnnotationProvider = "Groq";
     private string _selectedModelId = "gemini-3.1-pro-preview";
+    private string _selectedGroqModelId = "meta-llama/llama-4-scout-17b-16e-instruct";
     private string _selectedThinkingLevel = "low";
     private bool _autoStartEnabled = true;
     private bool _focusSidebarAfterCapture = true;
@@ -44,6 +58,7 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
     private string _chatInput = string.Empty;
     private Func<string, bool, Task>? _chatSendAction;
     private Func<Task>? _generateNotesAction;
+    private Func<Task>? _annotateScreenAction;
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler? SettingsChanged;
@@ -53,11 +68,14 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         RetryCommand = new AsyncRelayCommand(RetryAsync, () => CanRetry);
         SendChatCommand = new AsyncRelayCommand(SendChatFromInputAsync, () => CanSendChat);
         GenerateNotesCommand = new AsyncRelayCommand(GenerateNotesAsync, () => CanGenerateNotes);
+        AnnotateScreenCommand = new AsyncRelayCommand(AnnotateScreenAsync, () => CanAnnotateScreen);
     }
 
     public ObservableCollection<ChatTurn> ChatTurns { get; } = [];
     public ObservableCollection<string> SuggestedPrompts { get; } = [];
+    public IReadOnlyList<string> ProviderOptions => DefaultProviderOptions;
     public IReadOnlyList<string> ModelOptions => DefaultModelOptions;
+    public IReadOnlyList<string> GroqModelOptions => DefaultGroqModelOptions;
     public IReadOnlyList<string> ThinkingOptions => DefaultThinkingOptions;
 
     public AnalysisState State
@@ -69,8 +87,10 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
             {
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanSendChat)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanGenerateNotes)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanAnnotateScreen)));
                 (SendChatCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
                 (GenerateNotesCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+                (AnnotateScreenCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
             }
         }
     }
@@ -103,7 +123,9 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasCapturePreview)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasNoCapturePreview)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanGenerateNotes)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanAnnotateScreen)));
                 (GenerateNotesCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+                (AnnotateScreenCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
             }
         }
     }
@@ -145,12 +167,48 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         }
     }
 
+    public string SelectedTextProvider
+    {
+        get => _selectedTextProvider;
+        set
+        {
+            if (SetField(ref _selectedTextProvider, value))
+            {
+                RaiseSettingsChanged();
+            }
+        }
+    }
+
+    public string SelectedAnnotationProvider
+    {
+        get => _selectedAnnotationProvider;
+        set
+        {
+            if (SetField(ref _selectedAnnotationProvider, value))
+            {
+                RaiseSettingsChanged();
+            }
+        }
+    }
+
     public string SelectedModelId
     {
         get => _selectedModelId;
         set
         {
             if (SetField(ref _selectedModelId, value))
+            {
+                RaiseSettingsChanged();
+            }
+        }
+    }
+
+    public string SelectedGroqModelId
+    {
+        get => _selectedGroqModelId;
+        set
+        {
+            if (SetField(ref _selectedGroqModelId, value))
             {
                 RaiseSettingsChanged();
             }
@@ -218,9 +276,17 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         && State is not AnalysisState.Uploading
         && State is not AnalysisState.Rendering;
 
+    public bool CanAnnotateScreen =>
+        HasCapturePreview
+        && _annotateScreenAction is not null
+        && State is not AnalysisState.Capturing
+        && State is not AnalysisState.Uploading
+        && State is not AnalysisState.Rendering;
+
     public ICommand RetryCommand { get; }
     public ICommand SendChatCommand { get; }
     public ICommand GenerateNotesCommand { get; }
+    public ICommand AnnotateScreenCommand { get; }
 
     public void SetRetryAction(Func<Task>? retryAction)
     {
@@ -242,14 +308,30 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         (GenerateNotesCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
     }
 
+    public void SetAnnotateScreenAction(Func<Task>? annotateScreenAction)
+    {
+        _annotateScreenAction = annotateScreenAction;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanAnnotateScreen)));
+        (AnnotateScreenCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+    }
+
     public void ApplySettings(AppSettings settings)
     {
         _suppressSettingsChanged = true;
         try
         {
+            SelectedTextProvider = string.IsNullOrWhiteSpace(settings.TextProvider)
+                ? "Gemini"
+                : settings.TextProvider;
+            SelectedAnnotationProvider = string.IsNullOrWhiteSpace(settings.AnnotationProvider)
+                ? "Groq"
+                : settings.AnnotationProvider;
             SelectedModelId = string.IsNullOrWhiteSpace(settings.ModelId)
                 ? "gemini-3.1-pro-preview"
                 : settings.ModelId;
+            SelectedGroqModelId = string.IsNullOrWhiteSpace(settings.GroqModelId)
+                ? "meta-llama/llama-4-scout-17b-16e-instruct"
+                : settings.GroqModelId;
             SelectedThinkingLevel = string.IsNullOrWhiteSpace(settings.ThinkingLevel)
                 ? "low"
                 : settings.ThinkingLevel;
@@ -362,6 +444,16 @@ public sealed class SidebarViewModel : INotifyPropertyChanged
         }
 
         await _generateNotesAction().ConfigureAwait(true);
+    }
+
+    private async Task AnnotateScreenAsync()
+    {
+        if (_annotateScreenAction is null)
+        {
+            return;
+        }
+
+        await _annotateScreenAction().ConfigureAwait(true);
     }
 
     private async Task SendChatAsync(bool isSuggestedPrompt)

@@ -7,7 +7,8 @@ namespace GlobalCaptureAssistant.Config;
 
 public sealed class SettingsStore
 {
-    private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("GlobalCaptureAssistant::GeminiKey");
+    private static readonly byte[] GeminiEntropy = Encoding.UTF8.GetBytes("GlobalCaptureAssistant::GeminiKey");
+    private static readonly byte[] GroqEntropy = Encoding.UTF8.GetBytes("GlobalCaptureAssistant::GroqKey");
     private readonly string _settingsPath;
     private readonly JsonSerializerOptions _options = new() { WriteIndented = true };
 
@@ -44,7 +45,7 @@ public sealed class SettingsStore
 
     public void SetApiKey(AppSettings settings, string apiKey)
     {
-        var encrypted = ProtectedData.Protect(Encoding.UTF8.GetBytes(apiKey), Entropy, DataProtectionScope.CurrentUser);
+        var encrypted = ProtectedData.Protect(Encoding.UTF8.GetBytes(apiKey), GeminiEntropy, DataProtectionScope.CurrentUser);
         settings.EncryptedApiKey = Convert.ToBase64String(encrypted);
     }
 
@@ -58,7 +59,32 @@ public sealed class SettingsStore
         try
         {
             var encrypted = Convert.FromBase64String(settings.EncryptedApiKey);
-            var decrypted = ProtectedData.Unprotect(encrypted, Entropy, DataProtectionScope.CurrentUser);
+            var decrypted = ProtectedData.Unprotect(encrypted, GeminiEntropy, DataProtectionScope.CurrentUser);
+            return Encoding.UTF8.GetString(decrypted);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public void SetGroqApiKey(AppSettings settings, string apiKey)
+    {
+        var encrypted = ProtectedData.Protect(Encoding.UTF8.GetBytes(apiKey), GroqEntropy, DataProtectionScope.CurrentUser);
+        settings.EncryptedGroqApiKey = Convert.ToBase64String(encrypted);
+    }
+
+    public string? GetGroqApiKey(AppSettings settings)
+    {
+        if (string.IsNullOrWhiteSpace(settings.EncryptedGroqApiKey))
+        {
+            return null;
+        }
+
+        try
+        {
+            var encrypted = Convert.FromBase64String(settings.EncryptedGroqApiKey);
+            var decrypted = ProtectedData.Unprotect(encrypted, GroqEntropy, DataProtectionScope.CurrentUser);
             return Encoding.UTF8.GetString(decrypted);
         }
         catch

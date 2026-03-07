@@ -345,39 +345,75 @@ public sealed class AnnotatedScreenWindow : Window
 
     private static void RenderConnector(Canvas canvas, WpfPoint start, WpfPoint end, WpfBrush accent)
     {
-        var underlay = new Line
+        var curve = BuildConnectorGeometry(start, end);
+
+        var underlay = new Path
         {
-            X1 = start.X,
-            Y1 = start.Y,
-            X2 = end.X,
-            Y2 = end.Y,
+            Data = curve,
             Stroke = new SolidColorBrush(WpfColor.FromArgb(190, 8, 10, 16)),
-            StrokeThickness = 8,
+            StrokeThickness = 9,
             StrokeStartLineCap = PenLineCap.Round,
-            StrokeEndLineCap = PenLineCap.Round
+            StrokeEndLineCap = PenLineCap.Round,
+            StrokeLineJoin = PenLineJoin.Round
         };
         canvas.Children.Add(underlay);
 
-        var line = new Line
+        var line = new Path
         {
-            X1 = start.X,
-            Y1 = start.Y,
-            X2 = end.X,
-            Y2 = end.Y,
+            Data = curve,
             Stroke = accent,
             StrokeThickness = 3,
             StrokeStartLineCap = PenLineCap.Round,
-            StrokeEndLineCap = PenLineCap.Round
+            StrokeEndLineCap = PenLineCap.Round,
+            StrokeLineJoin = PenLineJoin.Round
         };
         canvas.Children.Add(line);
 
+        canvas.Children.Add(BuildConnectorOrigin(start, accent));
         canvas.Children.Add(BuildArrowHead(start, end, accent));
+    }
+
+    private static Geometry BuildConnectorGeometry(WpfPoint start, WpfPoint end)
+    {
+        var horizontalDirection = end.X >= start.X ? 1d : -1d;
+        var distanceX = Math.Abs(end.X - start.X);
+        var controlOffset = Math.Max(42, Math.Min(120, distanceX * 0.45));
+
+        var control1 = new WpfPoint(start.X + (horizontalDirection * controlOffset), start.Y);
+        var control2 = new WpfPoint(end.X - (horizontalDirection * controlOffset), end.Y);
+
+        var figure = new PathFigure
+        {
+            StartPoint = start,
+            Segments =
+            [
+                new BezierSegment(control1, control2, end, true)
+            ]
+        };
+
+        return new PathGeometry([figure]);
+    }
+
+    private static UIElement BuildConnectorOrigin(WpfPoint start, WpfBrush accent)
+    {
+        var glow = new Ellipse
+        {
+            Width = 14,
+            Height = 14,
+            Fill = new SolidColorBrush(WpfColor.FromArgb(90, 255, 255, 255)),
+            Stroke = accent,
+            StrokeThickness = 1.5
+        };
+
+        Canvas.SetLeft(glow, start.X - 7);
+        Canvas.SetTop(glow, start.Y - 7);
+        return glow;
     }
 
     private static Polygon BuildArrowHead(WpfPoint start, WpfPoint end, WpfBrush fill)
     {
         var angle = Math.Atan2(end.Y - start.Y, end.X - start.X);
-        const double size = 16;
+        const double size = 14;
 
         return new Polygon
         {
@@ -385,14 +421,27 @@ public sealed class AnnotatedScreenWindow : Window
             Points =
             [
                 new WpfPoint(end.X, end.Y),
-                new WpfPoint(end.X - size * Math.Cos(angle - Math.PI / 7), end.Y - size * Math.Sin(angle - Math.PI / 7)),
-                new WpfPoint(end.X - size * Math.Cos(angle + Math.PI / 7), end.Y - size * Math.Sin(angle + Math.PI / 7))
+                new WpfPoint(end.X - size * Math.Cos(angle - Math.PI / 8), end.Y - size * Math.Sin(angle - Math.PI / 8)),
+                new WpfPoint(end.X - (size * 0.35) * Math.Cos(angle), end.Y - (size * 0.35) * Math.Sin(angle)),
+                new WpfPoint(end.X - size * Math.Cos(angle + Math.PI / 8), end.Y - size * Math.Sin(angle + Math.PI / 8))
             ]
         };
     }
 
     private static void RenderTargetDot(Canvas canvas, WpfPoint target, WpfBrush accent)
     {
+        var ring = new Ellipse
+        {
+            Width = 22,
+            Height = 22,
+            Stroke = accent,
+            StrokeThickness = 2,
+            Fill = new SolidColorBrush(WpfColor.FromArgb(22, 255, 255, 255))
+        };
+        Canvas.SetLeft(ring, target.X - 11);
+        Canvas.SetTop(ring, target.Y - 11);
+        canvas.Children.Add(ring);
+
         var halo = new Ellipse
         {
             Width = 16,

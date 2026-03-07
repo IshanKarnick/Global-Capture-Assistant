@@ -1,15 +1,16 @@
 # Global Capture Assistant
 
-Always-on-top Windows screenshot assistant with built-in AI analysis and follow-up chat.
+Always-on-top Windows screenshot assistant with built-in AI analysis, follow-up chat, note generation, and on-screen annotations.
 
 I built this because I got tired of how clumsy the normal screenshot-to-LLM workflow felt. Taking a screenshot, pasting it into ChatGPT, waiting for a response, then constantly switching back and forth to compare the answer with what I was actually doing kept breaking my concentration. Even split-screening everything felt awkward because I was rearranging my desktop just to make the tool usable. I wanted the answer to stay visible beside my work instead of disappearing into another tab or window. So I built this as a selfish tool first, mainly to remove that friction from my own day-to-day workflow.
 
 - Windows desktop app
 - WPF / .NET 8
 - Global hotkey: `Ctrl + Shift + Q`
-- Gemini API key required
+- Gemini and/or Groq API key required depending on the features you use
 - WebView2 used for note-card rendering
 - Floating button + tray + sidebar workflow
+- Switchable Gemini/Groq providers for text analysis and annotations
 
 ![Global Capture Assistant sidebar shown beside an active desktop workflow](docs/screenshots/sidebar.png)
 
@@ -30,6 +31,11 @@ Rendered note-card preview after using `Generate Notes` on the current capture.
 
 ![Generated notes preview shown in the sidebar](docs/screenshots/generate%20notes.png)
 
+### Screen annotations
+Side-callout annotation overlay with arrows pointing back into the captured screen.
+
+![Annotation overlay with side callouts and arrows](docs/screenshots/annotations.png)
+
 ## Why I Built This
 
 Most screenshot-to-LLM workflows are not really slow because of the screenshot itself. The real drag is the context switching that starts right after it: capture something, paste it somewhere else, wait, compare, switch back, then do it again. I wanted a setup where the capture, the answer, and the next useful prompts all lived in one persistent workspace. This app is built around staying in flow while working, not around generic image upload.
@@ -44,29 +50,35 @@ Most screenshot-to-LLM workflows are not really slow because of the screenshot i
 - Result sidebar with Markdown rendering
 - Suggested follow-up prompts after each analysis
 - Manual chat input for continuing analysis on the same capture
+- Switchable text-analysis provider: Gemini or Groq
+- Switchable annotation provider: Gemini or Groq
+- `Annotate Screen` action that opens a visual overlay with side callouts, arrows, highlight boxes, and explanation cards
 - `Generate Notes` action that turns the current capture into a styled note card
 - HTML/CSS note card rendered in-app and copied to the clipboard as a PNG
 - In-app preview of the generated notes card image
+- Sidebar automatically hides during region capture and returns after capture completes
 - Retry support after failures
-- Model selection and thinking level settings
+- Gemini model selection, Groq model selection, and thinking level settings
 - Optional auto-start and focus-sidebar behavior
-- API key stored locally with Windows DPAPI
+- API keys stored locally with Windows DPAPI
 - Local logging for diagnostics
 
 ## How It Works
 
 1. Trigger a capture from the floating button, tray icon, or global hotkey.
 2. Select the part of the screen you want to analyze.
-3. The capture is sent to your configured Gemini model for image analysis.
-4. The sidebar shows the response, generates suggested follow-up prompts with `gemma-3-27b-it`, and lets you continue the conversation without recapturing.
-5. If you want something reusable, click `Generate Notes` to have Gemini produce a visual note card that is rendered in-app and copied to your clipboard as a PNG.
+3. The capture is sent to your configured text-analysis provider, either Gemini or Groq.
+4. The sidebar shows the response, generates suggested follow-up prompts, and lets you continue the conversation without recapturing.
+5. Click `Annotate Screen` if you want a visual overlay with side callouts and arrows that point back into the captured image.
+6. Click `Generate Notes` if you want Gemini to produce a visual note card that is rendered in-app and copied to your clipboard as a PNG.
 
 ## Quick Start
 
 Prerequisites:
 
 - Windows 10/11
-- Gemini API key
+- Gemini API key for notes or Gemini-powered analysis/annotations
+- Groq API key for Groq-powered analysis/annotations
 - Microsoft Edge WebView2 Runtime
 - `.NET 8 SDK` if you are building from source
 
@@ -85,8 +97,9 @@ dotnet run --project src\GlobalCaptureAssistant\GlobalCaptureAssistant.csproj -c
 
 ## First Run
 
-- The app prompts for your Gemini API key the first time you try to use AI capture features.
-- The key is stored locally with Windows DPAPI in `%AppData%\GlobalCaptureAssistant\settings.json`.
+- The app prompts for the API key required by the provider you selected.
+- Keys are stored locally with Windows DPAPI in `%AppData%\GlobalCaptureAssistant\settings.json`.
+- The sidebar settings let you choose Gemini or Groq separately for text analysis and annotations.
 - The app supports auto-start and focus-sidebar behavior by default, and both can be changed from the sidebar settings.
 
 ## Daily Workflow
@@ -95,8 +108,9 @@ dotnet run --project src\GlobalCaptureAssistant\GlobalCaptureAssistant.csproj -c
 2. Drag over the part of the screen you want to analyze.
 3. Read the response in the sidebar while keeping your original work visible.
 4. Click a suggested prompt or type your own follow-up question.
-5. Click `Generate Notes` if you want the current capture turned into a styled note card image.
-6. Paste the generated PNG directly into OneNote or another app, or keep using the same capture conversation without taking a new screenshot unless the context changes.
+5. Click `Annotate Screen` if you want a side-callout overlay that visually explains the capture.
+6. Click `Generate Notes` if you want the current capture turned into a styled note card image.
+7. Paste the generated PNG directly into OneNote or another app, or keep using the same capture conversation without taking a new screenshot unless the context changes.
 
 ## Build From Source
 
@@ -139,17 +153,21 @@ Expected output:
 - Settings file: `%AppData%\GlobalCaptureAssistant\settings.json`
 - Logs directory: `%LocalAppData%\GlobalCaptureAssistant\logs\`
 - Configurable options currently include:
+  - text-analysis provider
+  - annotation provider
   - selected Gemini model
+  - selected Groq model
   - thinking level
   - auto-start
   - focus sidebar after capture
-- The Gemini API key is stored locally with Windows DPAPI.
+- Gemini and Groq API keys are stored locally with Windows DPAPI.
 
 ## Troubleshooting and Current Limitations
 
 - If the global hotkey is unavailable, use the floating button or tray menu.
-- If your Gemini API key is missing, the app cannot analyze captures.
+- If the API key for the selected provider is missing, the related feature cannot run.
 - `Generate Notes` depends on WebView2 being available on the machine.
+- Groq vision requests may downscale or recompress large captures to fit Groq's image limits.
 - Internet access is required for model calls.
 - This app is currently Windows-only.
 

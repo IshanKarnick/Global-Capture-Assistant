@@ -405,7 +405,7 @@ public sealed class GeminiClient
         prompt.AppendLine("Return JSON only with a top-level object {\"annotations\": [...]}.");
         prompt.AppendLine("Use relative coordinates from 0.0 to 1.0.");
         prompt.AppendLine("Use x and y as the on-image anchor the arrow should point to.");
-        prompt.AppendLine("Allowed types: highlight_box, arrow, label, equation, note_panel, solution_panel, explanation_panel.");
+        prompt.AppendLine("Allowed types: highlight_box, arrow, label, equation, note_panel, solution_panel, explanation_panel, force_vector, free_body_diagram.");
         prompt.AppendLine("For highlight_box use x,y,width,height,text,color,emphasis.");
         prompt.AppendLine("For arrow use x,y,endX,endY,text,color. Width and height can be 0.");
         prompt.AppendLine("For label use x,y,width,height,title,text,color,emphasis.");
@@ -420,6 +420,17 @@ public sealed class GeminiClient
         prompt.AppendLine("Use the screenshot area mostly for arrows and optional highlight boxes, not large text blocks.");
         prompt.AppendLine("Prefer richer teaching panels when the screenshot contains exercises, diagrams, or concepts that need explanation.");
         prompt.AppendLine("Keep text concise and useful. No markdown fences. No prose outside JSON.");
+        prompt.AppendLine();
+        prompt.AppendLine("PHYSICS DETECTION (automatic):");
+        prompt.AppendLine("If the screenshot contains a physics problem, force diagram, free-body diagram, or any object with forces acting on it:");
+        prompt.AppendLine("  - Emit one force_vector annotation per identifiable force acting on an object.");
+        prompt.AppendLine("  - Optionally emit a free_body_diagram side panel when a schematic is clearer than on-image arrows alone. You may use both.");
+        prompt.AppendLine("For force_vector use: x,y (origin of the force on the object, relative 0-1), angle (degrees: 0=right 90=down 180=left 270=up), text (force name e.g. \"F_g\"), magnitude (e.g. \"mg\" or \"9.8 N\"), color.");
+        prompt.AppendLine("  - IMPORTANT: force_vector arrows are drawn ON the image starting at (x,y). Do not give them a side callout.");
+        prompt.AppendLine("  - Use distinct colors per force: gravity=#60AAFF, normal=#62D69C, tension=#FFB84D, friction=#FF6B81, applied=#C97BFF.");
+        prompt.AppendLine("For free_body_diagram use: x,y,width,height (side panel placement), title, forces: [{label, angle, magnitude, color}].");
+        prompt.AppendLine("  - Each forces entry has: label (e.g. \"F_g\"), angle (degrees), magnitude (e.g. \"9.8 N\"), color.");
+        prompt.AppendLine("  - The UI draws a schematic box with labeled arrows for each force entry.");
 
         if (request.WindowContext is not null)
         {

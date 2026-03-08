@@ -144,6 +144,14 @@ public sealed class AnnotatedScreenWindow : Window
 
         foreach (var annotation in annotations)
         {
+            if (IsForceVector(annotation))
+            {
+                RenderForceVector(canvas, annotation, imageOffsetX, imageWidth, imageHeight);
+            }
+        }
+
+        foreach (var annotation in annotations)
+        {
             RenderSideCallout(
                 canvas,
                 annotation,
@@ -159,6 +167,11 @@ public sealed class AnnotatedScreenWindow : Window
     private static bool IsHighlight(ScreenAnnotationItem annotation)
     {
         return annotation.Type.Trim().Equals("highlight_box", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsForceVector(ScreenAnnotationItem annotation)
+    {
+        return annotation.Type.Trim().Equals("force_vector", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void RenderHighlight(Canvas canvas, ScreenAnnotationItem annotation, double imageOffsetX, double imageWidth, double imageHeight)
@@ -212,10 +225,20 @@ public sealed class AnnotatedScreenWindow : Window
         ref double leftCursorY,
         ref double rightCursorY)
     {
+        // force_vector is rendered directly on the image; skip side callout.
+        if (IsForceVector(annotation))
+        {
+            return;
+        }
         var accent = ResolveBrush(annotation.Color, annotation.Emphasis);
         var target = ResolveTarget(annotation, imageOffsetX, imageWidth, imageHeight);
         var body = BuildCalloutBody(annotation);
-        if (string.IsNullOrWhiteSpace(body))
+
+        // A free_body_diagram with Forces can be rendered even without text body.
+        var hasFbdContent = annotation.Type.Trim().Equals("free_body_diagram", StringComparison.OrdinalIgnoreCase)
+            && annotation.Forces is { Count: > 0 };
+
+        if (string.IsNullOrWhiteSpace(body) && !hasFbdContent)
         {
             return;
         }
@@ -286,17 +309,31 @@ public sealed class AnnotatedScreenWindow : Window
             });
         }
 
-        content.Children.Add(new ScrollViewer
+        // For free_body_diagram panels, embed the schematic before any text.
+        var isFbd = annotation.Type.Trim().Equals("free_body_diagram", StringComparison.OrdinalIgnoreCase);
+        if (isFbd && annotation.Forces is { Count: > 0 } forces)
         {
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            MaxHeight = CalloutMaxBodyHeight,
-            Content = new MathMarkdownViewer
+            content.Children.Add(BuildFbdSchematic(forces, width));
+            if (!string.IsNullOrWhiteSpace(body))
             {
-                Markdown = body,
-                FontSize = 13.5,
-                Foreground = textBrush
+                content.Children.Add(new Border { Height = 8 }); // spacer
             }
-        });
+        }
+
+        if (!string.IsNullOrWhiteSpace(body))
+        {
+            content.Children.Add(new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                MaxHeight = CalloutMaxBodyHeight,
+                Content = new MathMarkdownViewer
+                {
+                    Markdown = body,
+                    FontSize = 13.5,
+                    Foreground = textBrush
+                }
+            });
+        }
 
         var panelBody = new Border
         {
@@ -513,7 +550,221 @@ public sealed class AnnotatedScreenWindow : Window
             "solution_panel" => new SolidColorBrush(WpfColor.FromRgb(244, 250, 246)),
             "note_panel" => new SolidColorBrush(WpfColor.FromRgb(252, 247, 236)),
             "equation" => new SolidColorBrush(WpfColor.FromRgb(241, 246, 255)),
+            "free_body_diagram" => new SolidColorBrush(WpfColor.FromRgb(238, 244, 255)),
             _ => new SolidColorBrush(WpfColor.FromRgb(248, 249, 252))
+        };
+    }
+
+    // ── Physics: Force Vector (drawn directly on the screenshot image) ────────────
+
+    private const double ForceVectorLength = 90;
+    private const double ForceVectorThickness = 4;
+
+    private static void RenderForceVector(
+        Canvas canvas,
+        ScreenAnnotationItem annotation,
+        double imageOffsetX,
+        double imageWidth,
+        double imageHeight)
+    {
+        var angleRad = ((annotation.Angle ?? 270) * Math.PI) / 180.0;
+        var originX = imageOffsetX + (Clamp01(annotation.X) * imageWidth);
+        var originY = Clamp01(annotation.Y) * imageHeight;
+
+        var tipX = originX + (ForceVectorLength * Math.Cos(angleRad));
+        var tipY = originY + (ForceVectorLength * Math.Sin(angleRad));
+
+        var accent = ResolveBrush(annotation.Color, "force");
+
+        // Shadow underlay
+        canvas.Children.Add(new Line
+        {
+            X1 = originX, Y1 = originY, X2 = tipX, Y2 = tipY,
+            Stroke = new SolidColorBrush(WpfColor.FromArgb(180, 0, 0, 0)),
+            StrokeThickness = ForceVectorThickness + 5,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round
+        });
+
+        // Main shaft
+        canvas.Children.Add(new Line
+        {
+            X1 = originX, Y1 = originY, X2 = tipX, Y2 = tipY,
+            Stroke = accent,
+            StrokeThickness = ForceVectorThickness,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round
+        });
+
+        // Origin dot
+        var originDot = new Ellipse
+        {
+            Width = 10, Height = 10,
+            Fill = accent,
+            Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                BlurRadius = 6, ShadowDepth = 0,
+                Color = WpfColor.FromArgb(200, 0, 0, 0), Opacity = 0.8
+            }
+        };
+        Canvas.SetLeft(originDot, originX - 5);
+        Canvas.SetTop(originDot, originY - 5);
+        canvas.Children.Add(originDot);
+
+        // Arrowhead at tip
+        canvas.Children.Add(BuildForceArrowHead(originX, originY, tipX, tipY, accent));
+
+        // Label (name + magnitude) alongside the tip
+        var labelText = annotation.Text?.Trim() ?? string.Empty;
+        var magnitude = annotation.Magnitude?.Trim() ?? string.Empty;
+        var fullLabel = string.IsNullOrEmpty(magnitude) ? labelText
+            : string.IsNullOrEmpty(labelText) ? magnitude
+            : $"{labelText} = {magnitude}";
+
+        if (!string.IsNullOrWhiteSpace(fullLabel))
+        {
+            var labelBorder = new Border
+            {
+                Background = new SolidColorBrush(WpfColor.FromArgb(210, 10, 12, 18)),
+                BorderBrush = accent,
+                BorderThickness = new Thickness(1.5),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(6, 3, 6, 3),
+                Child = new TextBlock
+                {
+                    Text = fullLabel,
+                    Foreground = new SolidColorBrush(WpfColor.FromRgb(255, 255, 255)),
+                    FontFamily = new WpfFontFamily("Segoe UI Variable Text"),
+                    FontSize = 12.5,
+                    FontWeight = FontWeights.SemiBold
+                }
+            };
+
+            labelBorder.Measure(new System.Windows.Size(200, 60));
+            var lw = labelBorder.DesiredSize.Width;
+            var lh = labelBorder.DesiredSize.Height;
+
+            // Offset label perpendicular to the arrow, slightly past the tip
+            var perpX = -Math.Sin(angleRad);
+            var perpY = Math.Cos(angleRad);
+            var labelX = tipX + (Math.Cos(angleRad) * 8) + (perpX * (lh / 2 + 4)) - (lw / 2);
+            var labelY = tipY + (Math.Sin(angleRad) * 8) + (perpY * (lh / 2 + 4)) - (lh / 2);
+
+            Canvas.SetLeft(labelBorder, labelX);
+            Canvas.SetTop(labelBorder, labelY);
+            canvas.Children.Add(labelBorder);
+        }
+    }
+
+    private static Polygon BuildForceArrowHead(double x1, double y1, double x2, double y2, WpfBrush fill)
+    {
+        var angle = Math.Atan2(y2 - y1, x2 - x1);
+        const double size = 18;
+        const double wing = Math.PI / 7;
+        return new Polygon
+        {
+            Fill = fill,
+            Points =
+            [
+                new WpfPoint(x2, y2),
+                new WpfPoint(x2 - size * Math.Cos(angle - wing), y2 - size * Math.Sin(angle - wing)),
+                new WpfPoint(x2 - (size * 0.40) * Math.Cos(angle), y2 - (size * 0.40) * Math.Sin(angle)),
+                new WpfPoint(x2 - size * Math.Cos(angle + wing), y2 - size * Math.Sin(angle + wing))
+            ]
+        };
+    }
+
+    // ── Physics: Free Body Diagram (schematic in a side-rail callout) ─────────────
+
+    private static Border BuildFbdSchematic(IReadOnlyList<ForceEntry> forces, double width)
+    {
+        const double canvasSize = 200;
+        const double objectSize = 44;
+        const double arrowLength = 68;
+        const double objectCx = canvasSize / 2;
+        const double objectCy = canvasSize / 2;
+
+        var schematic = new Canvas
+        {
+            Width = canvasSize,
+            Height = canvasSize,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Center
+        };
+
+        // Object box
+        var objRect = new WpfRectangle
+        {
+            Width = objectSize, Height = objectSize,
+            Fill = new SolidColorBrush(WpfColor.FromRgb(50, 60, 80)),
+            Stroke = new SolidColorBrush(WpfColor.FromRgb(130, 160, 210)),
+            StrokeThickness = 2,
+            RadiusX = 6, RadiusY = 6
+        };
+        Canvas.SetLeft(objRect, objectCx - objectSize / 2);
+        Canvas.SetTop(objRect, objectCy - objectSize / 2);
+        schematic.Children.Add(objRect);
+
+        foreach (var force in forces)
+        {
+            var angleRad = (force.Angle * Math.PI) / 180.0;
+            var startX = objectCx + (objectSize / 2 + 4) * Math.Cos(angleRad);
+            var startY = objectCy + (objectSize / 2 + 4) * Math.Sin(angleRad);
+            var endX = objectCx + (objectSize / 2 + 4 + arrowLength) * Math.Cos(angleRad);
+            var endY = objectCy + (objectSize / 2 + 4 + arrowLength) * Math.Sin(angleRad);
+
+            var brush = ResolveBrush(force.Color, null);
+
+            // Shadow
+            schematic.Children.Add(new Line
+            {
+                X1 = startX, Y1 = startY, X2 = endX, Y2 = endY,
+                Stroke = new SolidColorBrush(WpfColor.FromArgb(160, 0, 0, 0)),
+                StrokeThickness = 7,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round
+            });
+
+            // Shaft
+            schematic.Children.Add(new Line
+            {
+                X1 = startX, Y1 = startY, X2 = endX, Y2 = endY,
+                Stroke = brush,
+                StrokeThickness = 3,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round
+            });
+
+            // Arrowhead
+            schematic.Children.Add(BuildForceArrowHead(startX, startY, endX, endY, brush));
+
+            // Label + magnitude beyond the tip
+            var labelText = string.IsNullOrEmpty(force.Magnitude)
+                ? force.Label
+                : $"{force.Label} = {force.Magnitude}";
+
+            var labelTb = new TextBlock
+            {
+                Text = labelText,
+                Foreground = brush,
+                FontFamily = new WpfFontFamily("Segoe UI Variable Text"),
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold
+            };
+            labelTb.Measure(new System.Windows.Size(120, 40));
+            var perpX = -Math.Sin(angleRad);
+            var perpY = Math.Cos(angleRad);
+            var lx = endX + Math.Cos(angleRad) * 6 + perpX * (labelTb.DesiredSize.Height / 2 + 2) - labelTb.DesiredSize.Width / 2;
+            var ly = endY + Math.Sin(angleRad) * 6 + perpY * (labelTb.DesiredSize.Height / 2 + 2) - labelTb.DesiredSize.Height / 2;
+            Canvas.SetLeft(labelTb, lx);
+            Canvas.SetTop(labelTb, ly);
+            schematic.Children.Add(labelTb);
+        }
+
+        return new Border
+        {
+            Child = schematic,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+            Margin = new Thickness(0, 6, 0, 0)
         };
     }
 
@@ -526,6 +777,7 @@ public sealed class AnnotatedScreenWindow : Window
             "note_panel" => "Notes",
             "explanation_panel" => "Explanation",
             "equation" => "Equation",
+            "free_body_diagram" => "Free Body Diagram",
             _ => "Callout"
         };
     }

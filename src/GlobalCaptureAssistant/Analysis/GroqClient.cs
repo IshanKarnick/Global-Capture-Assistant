@@ -229,7 +229,7 @@ public sealed class GroqClient
             "You annotate screenshots for an educational desktop overlay. " +
             "Return JSON only with a top-level object {\"annotations\": [...]}. " +
             "Use relative coordinates from 0.0 to 1.0. " +
-            "Allowed types: highlight_box, arrow, label, equation, note_panel, solution_panel, explanation_panel. " +
+            "Allowed types: highlight_box, arrow, label, equation, note_panel, solution_panel, explanation_panel, force_vector, free_body_diagram. " +
             "Use x and y as the on-image anchor the arrow should point to. " +
             "For highlight_box use x,y,width,height,text,color,emphasis. " +
             "For arrow use x,y,endX,endY,text,color. Width and height can be 0. " +
@@ -244,8 +244,13 @@ public sealed class GroqClient
             "Prefer 1 to 3 larger, readable teaching panels over many tiny labels. " +
             "Use the screenshot area mostly for arrows and optional highlight boxes, not large text blocks. " +
             "Prefer richer teaching panels when the screenshot contains exercises, diagrams, or concepts that need explanation. " +
-            "Keep text concise and useful. Mix explanation, tutoring, and debugging where relevant. " +
-            "No markdown, no prose outside JSON.";
+            "Keep text concise and useful. Mix explanation, tutoring, and debugging where relevant. No markdown, no prose outside JSON. " +
+            "PHYSICS DETECTION (automatic): If the screenshot shows a physics problem, force diagram, or object with forces, " +
+            "emit one force_vector per identifiable force. " +
+            "For force_vector: x,y (force origin on object, 0-1), angle (degrees: 0=right 90=down 180=left 270=up), text (force name e.g. F_g), magnitude (e.g. 9.8 N), color. " +
+            "force_vector arrows are drawn ON the image from (x,y); do not give them a side callout. " +
+            "Use colors: gravity=#60AAFF, normal=#62D69C, tension=#FFB84D, friction=#FF6B81, applied=#C97BFF. " +
+            "Optionally add a free_body_diagram panel with: x,y,width,height,title,forces:[{label,angle,magnitude,color}].";
 
         var userText = new StringBuilder();
         userText.AppendLine("Annotate the whole screenshot.");

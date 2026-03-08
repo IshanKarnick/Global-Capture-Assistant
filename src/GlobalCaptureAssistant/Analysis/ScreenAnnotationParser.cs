@@ -37,7 +37,10 @@ internal static class ScreenAnnotationParser
                 ReadFirstFlexibleString(item, "text", "label", "description", "content", "note", "explanation", "summary"),
                 ReadFirstFlexibleString(item, "latex", "equation", "math"),
                 ReadFirstFlexibleString(item, "color", "strokeColor", "accentColor"),
-                ReadFirstFlexibleString(item, "emphasis", "style", "severity")));
+                ReadFirstFlexibleString(item, "emphasis", "style", "severity"),
+                Angle: ReadFirstNullableDouble(item, "angle", "direction_degrees", "direction"),
+                Forces: ReadForces(item),
+                Magnitude: ReadFirstFlexibleString(item, "magnitude", "value", "mag")));
         }
 
         if (annotations.Count == 0)
@@ -246,8 +249,30 @@ internal static class ScreenAnnotationParser
             "note" => "note_panel",
             "solution" or "worked_solution" => "solution_panel",
             "explanation" => "explanation_panel",
+            "force" or "vector" or "force_arrow" or "physics_arrow" => "force_vector",
+            "fbd" or "free_body" or "body_diagram" or "freebody" => "free_body_diagram",
             _ => type.Trim()
         };
+    }
+
+    private static IReadOnlyList<ForceEntry>? ReadForces(JsonElement element)
+    {
+        if (!element.TryGetProperty("forces", out var forcesEl) || forcesEl.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var list = new List<ForceEntry>();
+        foreach (var f in forcesEl.EnumerateArray())
+        {
+            var label = ReadFirstFlexibleString(f, "label", "name", "text") ?? "F";
+            TryReadDouble(f, "angle", out var angle);
+            var magnitude = ReadFirstFlexibleString(f, "magnitude", "value", "mag");
+            var color = ReadFirstFlexibleString(f, "color", "strokeColor");
+            list.Add(new ForceEntry(label, angle, magnitude, color));
+        }
+
+        return list.Count > 0 ? list : null;
     }
 
     private sealed record AnnotationBounds(double X, double Y, double Width, double Height);
